@@ -408,7 +408,7 @@ class JobScraper:
                         if not await page.query_selector(self.selectors['captcha_input']):
                             logger.info("SUCCESS: Page content changed - CAPTCHA solved!")
                             return True
-                except:
+                except Exception:
                     pass
                 
                 # Wait and check again
@@ -460,7 +460,7 @@ class JobScraper:
             # Check if page is responsive before refresh
             try:
                 await page.evaluate("document.readyState", timeout=5000)
-            except:
+            except Exception:
                 logger.debug("Page seems unresponsive, proceeding with refresh")
             
             # Refresh the page
@@ -713,7 +713,7 @@ class JobScraper:
                         if self.browser:
                             try:
                                 await self.browser.close()
-                            except:
+                            except Exception:
                                 pass
                         
                         # Reinitialize browser
@@ -945,7 +945,7 @@ class JobScraper:
                 if self.browser:
                     try:
                         await self.browser.close()
-                    except:
+                    except Exception:
                         pass
                 
                 # Reinitialize browser
@@ -1053,7 +1053,7 @@ class JobScraper:
                         try:
                             num = int(batch_file.stem.split('_')[-1])
                             batch_numbers.append(num)
-                        except:
+                        except (ValueError, IndexError):
                             continue
                     batch_number = max(batch_numbers) + 1 if batch_numbers else 1
                 

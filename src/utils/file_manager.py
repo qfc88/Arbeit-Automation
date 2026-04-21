@@ -428,7 +428,7 @@ class FileManager:
         """Cleanup session when FileManager is destroyed"""
         try:
             self.cleanup_session()
-        except:
+        except Exception:
             pass  # Ignore errors during destruction
     
     def get_session_statistics(self, session_id: str = None) -> Dict[str, Any]:

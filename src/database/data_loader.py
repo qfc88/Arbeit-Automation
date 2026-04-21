@@ -189,7 +189,7 @@ class JobDataLoader:
                     parsed_date = re.sub(pattern, replacement, date_str)
                     logger.debug(f"Parsed German date: {date_str} -> {parsed_date}")
                     return parsed_date
-                except:
+                except Exception:
                     continue
         
         return date_str  # Return original if no pattern matches
@@ -337,7 +337,7 @@ class JobDataLoader:
                 transformed['scraped_at'] = datetime.fromisoformat(
                     transformed['scraped_at'].replace('Z', '+00:00')
                 )
-            except:
+            except Exception:
                 transformed['scraped_at'] = datetime.utcnow()
         
         # Calculate data quality score if validation is enabled

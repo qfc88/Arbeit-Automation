@@ -122,7 +122,7 @@ class Manual2CaptchaClient:
                     return result['request']
                 else:
                     raise Exception(f"Submit failed: {result.get('error_text', 'Unknown error')}")
-            except:
+            except Exception:
                 # Fallback to text response
                 if 'OK|' in response.text:
                     captcha_id = response.text.split('|')[1]
@@ -160,7 +160,7 @@ class Manual2CaptchaClient:
                         continue
                     else:
                         raise Exception(f"Solve failed: {result.get('error_text', 'Unknown error')}")
-                except:
+                except Exception:
                     # Fallback to text response
                     if 'OK|' in response.text:
                         solution = response.text.split('|')[1]
@@ -446,7 +446,7 @@ class CaptchaSolver:
                         # Report incorrect solution to 2Captcha
                         try:
                             self.twocaptcha_client.report(result.id, False)
-                        except:
+                        except Exception:
                             pass
                         
                         # Try again if not the last attempt
@@ -461,7 +461,7 @@ class CaptchaSolver:
                     try:
                         import os
                         os.unlink(temp_image_path)
-                    except:
+                    except Exception:
                         pass
                     
                     if attempt == self.twocaptcha_attempts - 1:
@@ -561,7 +561,7 @@ class CaptchaSolver:
             try:
                 await page.wait_for_selector('#detail-bewerbung-adresse', timeout=5000)
                 return True
-            except:
+            except Exception:
                 pass
             
             # Method 2: Check if CAPTCHA disappeared
@@ -569,14 +569,14 @@ class CaptchaSolver:
                 captcha_element = await page.query_selector(captcha_selector)
                 if not captcha_element:
                     return True
-            except:
+            except Exception:
                 pass
             
             # Method 3: Check if application links are available
             try:
                 await page.wait_for_selector('#detail-bewerbung-url', timeout=3000)
                 return True
-            except:
+            except Exception:
                 pass
             
             return False
@@ -659,7 +659,7 @@ async def is_captcha_present(page: Page, selector: str) -> bool:
     try:
         element = await page.query_selector(selector)
         return element is not None
-    except:
+    except Exception:
         return False
 
 async def wait_for_captcha_load(page: Page, selector: str, timeout: int = 10) -> bool:
@@ -668,5 +668,5 @@ async def wait_for_captcha_load(page: Page, selector: str, timeout: int = 10) ->
         await page.wait_for_selector(selector, timeout=timeout * 1000)
         await asyncio.sleep(2)  # Extra wait for image loading
         return True
-    except:
+    except Exception:
         return False

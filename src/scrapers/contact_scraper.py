@@ -91,7 +91,7 @@ class ContactScraper:
                         if person:
                             contact_info['contact_person'] = person
                             break
-                except:
+                except Exception:
                     continue
             
             logger.debug(f"Basic contact extraction: {contact_info}")
@@ -119,7 +119,7 @@ class ContactScraper:
                         href = await element.get_attribute('href')
                         if href and self._is_company_website(href):
                             return self._extract_base_domain(href)
-                except:
+                except Exception:
                     continue
             
             # Method 2: Look for company homepage links
@@ -136,7 +136,7 @@ class ContactScraper:
                         href = await link.get_attribute('href')
                         if href and self._is_company_website(href):
                             return self._extract_base_domain(href)
-                except:
+                except Exception:
                     continue
             
             # Method 3: Extract from text content (look for website mentions)
@@ -231,7 +231,7 @@ class ContactScraper:
                         email = href.replace('mailto:', '')
                         if self.validate_email(email):
                             emails.add(email.lower())
-            except:
+            except Exception:
                 pass
             
             return emails
@@ -264,7 +264,7 @@ class ContactScraper:
                         cleaned_phone = self._clean_phone_number(phone)
                         if cleaned_phone and self.validate_phone(cleaned_phone):
                             phones.add(cleaned_phone)
-            except:
+            except Exception:
                 pass
             
             return phones
@@ -672,7 +672,7 @@ class ContactScraper:
                     parsed = urlparse(company_website if company_website.startswith('http') else f'http://{company_website}')
                     domain = parsed.netloc or parsed.path
                     domain = domain.replace('www.', '')
-                except:
+                except Exception:
                     pass
             
             # Generate email guesses
@@ -701,7 +701,7 @@ class ContactScraper:
         try:
             parsed_url = urlparse(url)
             return f"{parsed_url.scheme}://{parsed_url.netloc}"
-        except:
+        except Exception:
             return url
     
     def _clean_website_url(self, url_text: str) -> str:

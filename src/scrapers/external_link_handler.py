@@ -420,7 +420,7 @@ class ExternalLinkHandler:
                         if text and text.strip() and len(text.strip()) > 2:
                             data[field] = text.strip()
                             break
-                except:
+                except Exception:
                     continue
         
         return data
@@ -460,7 +460,7 @@ class ExternalLinkHandler:
                         email = href.replace('mailto:', '')
                         if self._validate_email(email):
                             emails.add(email.lower())
-            except:
+            except Exception:
                 pass
             
             if emails:
@@ -495,7 +495,7 @@ class ExternalLinkHandler:
                         cleaned_phone = self._clean_phone_number(phone)
                         if cleaned_phone and self._validate_phone(cleaned_phone):
                             phones.add(cleaned_phone)
-            except:
+            except Exception:
                 pass
             
             if phones:
@@ -515,7 +515,7 @@ class ExternalLinkHandler:
                 if element and await element.is_visible():
                     logger.debug(f"Found external container: {selector}")
                     return True
-            except:
+            except Exception:
                 continue
         return False
     
@@ -537,7 +537,7 @@ class ExternalLinkHandler:
                         data_url = await element.get_attribute('data-external-url')
                         if data_url and data_url.startswith('http'):
                             return data_url
-                except:
+                except Exception:
                     continue
             
             # Fallback: search for any external job site links in page
@@ -569,7 +569,7 @@ class ExternalLinkHandler:
                             if match:
                                 source_info['company'] = match.group(1).strip()
                             break
-                except:
+                except Exception:
                     continue
             
             return source_info
@@ -626,7 +626,7 @@ class ExternalLinkHandler:
         try:
             parsed_url = urlparse(url)
             return parsed_url.netloc.lower()
-        except:
+        except Exception:
             return 'unknown'
     
     async def _has_external_text_indicators(self, page_text: str) -> bool:
@@ -656,7 +656,7 @@ class ExternalLinkHandler:
                         domain = self._get_domain_from_url(href)
                         if any(partner in domain for partner in self.partner_sites.keys()):
                             external_links.append(href)
-                except:
+                except Exception:
                     continue
             
             return external_links
@@ -692,7 +692,7 @@ class ExternalLinkHandler:
                         await asyncio.sleep(1)
                         logger.debug(f"Clicked external cookie consent: {selector}")
                         break
-                except:
+                except Exception:
                     continue
                     
         except Exception as e:
@@ -743,7 +743,7 @@ class ExternalLinkHandler:
                             if text and text.strip():
                                 data[field] = text.strip()
                                 break
-            except:
+            except Exception:
                 continue
         
         # Also try regex extraction for emails and phones
@@ -816,7 +816,7 @@ class ExternalLinkHandler:
                             if text and text.strip() and len(text.strip()) > 2:
                                 data[field] = text.strip()
                                 break
-                    except:
+                    except Exception:
                         continue
             
             return data
@@ -981,7 +981,7 @@ class ExternalLinkHandler:
                                     if person_name:
                                         contact_data[field] = person_name
                                         break
-                    except:
+                    except Exception:
                         continue
             
             return contact_data
