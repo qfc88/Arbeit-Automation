@@ -6,9 +6,12 @@ Quick test script to verify external link detection works with azubi.de example
 import asyncio
 import sys
 from pathlib import Path
+import pytest
 
 # Add src to path
-sys.path.append(str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+
+pytest.importorskip("playwright")
 
 from scrapers.external_link_handler import ExternalLinkHandler
 from playwright.async_api import async_playwright

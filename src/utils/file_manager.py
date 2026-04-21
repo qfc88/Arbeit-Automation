@@ -64,7 +64,6 @@ class FileManager:
         """Find the most recent active session to resume"""
         try:
             # Look for session directories created within resume window
-            from ..config.settings import FILE_MANAGEMENT_SETTINGS
             resume_hours = FILE_MANAGEMENT_SETTINGS.get('session_resume_hours', 24)
             current_time = datetime.now()
             cutoff_time = current_time - timedelta(hours=resume_hours)
@@ -134,7 +133,6 @@ class FileManager:
     
     def start_new_session(self, session_name: str = None, force_new: bool = False) -> str:
         """Start a new scraping session with unique identifier"""
-        from ..config.settings import FILE_MANAGEMENT_SETTINGS
         auto_resume = FILE_MANAGEMENT_SETTINGS.get('auto_resume_sessions', True)
         force_new = force_new or FILE_MANAGEMENT_SETTINGS.get('force_new_session', False)
         
