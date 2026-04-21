@@ -324,7 +324,7 @@ class JobScraper:
                 
                 # Try auto-solving first if available
                 if self.auto_solve_captcha and self.captcha_solver:
-                    logger.info("[AUTO] Attempting auto-solve with TrOCR")
+                    logger.info("[AUTO] Attempting auto-solve with 2Captcha")
                     
                     success = await self.captcha_solver.solve_captcha_from_page(
                         page,
@@ -1454,7 +1454,7 @@ class JobScraper:
 async def main():
     """Main function to run the scraper with enhanced configuration"""
     # Enhanced options from settings
-    auto_solve = 'trocr' in CAPTCHA_SETTINGS.get('solving_strategies', ['manual'])
+    auto_solve = '2captcha' in CAPTCHA_SETTINGS.get('solving_strategies', ['manual'])
     use_sessions = FILE_MANAGEMENT_SETTINGS.get('use_sessions', False)
     validate_data = VALIDATION_SETTINGS.get('validate_on_scrape', False)
     enable_resume = SCRAPER_SETTINGS.get('enable_resume', True)

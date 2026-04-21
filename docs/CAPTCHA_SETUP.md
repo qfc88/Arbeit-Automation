@@ -5,9 +5,6 @@
 ```bash
 # Install 2captcha-python library
 pip install 2captcha-python
-
-# Optional: Install TrOCR dependencies (if not already installed)
-pip install transformers torch torchvision
 ```
 
 ## Configuration
@@ -19,21 +16,17 @@ TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
 
 ## Strategy Flow
 
-The CaptchaSolver now uses a 3-tier approach:
+The CaptchaSolver uses a 2-tier approach:
 
-### 1. TrOCR Strategy (First Choice)
-- **Local AI model**: Fast, free, offline
-- **Attempts**: 5 tries with CAPTCHA reload
-- **Confidence threshold**: 0.7
-
-### 2. 2Captcha API (Second Choice)  
+### 1. 2Captcha API (First Choice)  
 - **Human solvers**: High accuracy
 - **Cost**: ~$1-3 per 1000 CAPTCHAs
 - **Timeout**: 2 minutes max
 - **Error reporting**: Wrong solutions reported back
 
-### 3. Manual Fallback (Last Resort)
+### 2. Manual Fallback (Last Resort)
 - **User intervention**: Browser pause for manual solving
+- **Timeout**: 300s (5 min) — job is skipped if not solved in time
 - **Smart detection**: Automatic detection when completed
 
 ## Usage Examples
@@ -48,19 +41,16 @@ python scripts/run_job_scraper.py
 ```python
 # In src/config/settings.py
 CAPTCHA_SETTINGS = {
-    'solving_strategies': ['trocr', '2captcha', 'manual'],  # Order matters
-    'max_attempts': 5,                                     # TrOCR attempts
-    'confidence_threshold': 0.7,                           # TrOCR confidence
+    'solving_strategies': ['2captcha', 'manual'],  # Priority order
+    'twocaptcha_attempts': 15,
+    'manual_skip_timeout': 300,  # Skip job after 5 min
 }
 ```
 
 ### Strategy Customization
 ```python
-# Only use 2Captcha (skip TrOCR)
-'solving_strategies': ['2captcha', 'manual']
-
-# Only use TrOCR (skip 2Captcha)
-'solving_strategies': ['trocr', 'manual']
+# Only use 2Captcha
+'solving_strategies': ['2captcha']
 
 # Manual only (disable automation)
 'solving_strategies': ['manual']
@@ -70,22 +60,8 @@ CAPTCHA_SETTINGS = {
 
 ### Success Flow:
 ```
-=== Trying strategy: TROCR ===
-TrOCR attempt 1/5
-TrOCR solution: 'ABC123' (confidence: 0.85)
-Submitting CAPTCHA solution: 'ABC123'
-SUCCESS: CAPTCHA solved with TROCR!
-```
-
-### Fallback Flow:
-```
-=== Trying strategy: TROCR ===
-All TrOCR attempts failed
-FAILED: TROCR strategy failed
-
 === Trying strategy: 2CAPTCHA ===
 Solving CAPTCHA with 2Captcha API...
-Submitting CAPTCHA to 2Captcha API...
 2Captcha solution received: 'XYZ789'
 Submitting CAPTCHA solution: 'XYZ789'
 SUCCESS: CAPTCHA solved with 2CAPTCHA!
@@ -97,10 +73,11 @@ SUCCESS: CAPTCHA solved with 2CAPTCHA!
 2Captcha timeout error: Timeout
 FAILED: 2CAPTCHA strategy failed
 
-All automated strategies failed
-Auto-solve failed, falling back to manual solving...
+=== Trying strategy: MANUAL ===
 === MANUAL CAPTCHA SOLVING ===
-Please solve the CAPTCHA manually in the browser
+Please solve the CAPTCHA manually in the browser within 300s
+Waiting for manual CAPTCHA solve... 240s remaining
+Manual CAPTCHA timeout after 300s — skipping this job
 ```
 
 ## Cost Estimation
@@ -110,9 +87,7 @@ Please solve the CAPTCHA manually in the browser
 - **Your balance**: Check at runtime via API
 
 ### Expected Usage:
-- **TrOCR success rate**: ~60-80% (free)
-- **2Captcha usage**: Only for remaining 20-40%
-- **Estimated cost**: $5-15 for 9,000 jobs (if TrOCR fails on all)
+- **Estimated cost**: $5-15 for 9,000 jobs
 
 ## Testing
 
@@ -140,14 +115,13 @@ python scripts/run_job_scraper.py
    - Verify account balance
    - Check network connectivity
 
-2. **TrOCR Not Loading**:
-   - Install: `pip install transformers torch`
-   - Check GPU/CPU availability
-   - Verify model download
+2. **Manual Timeout**:
+   - Increase `manual_skip_timeout` in settings
+   - Job is skipped and logged when timeout expires
 
 3. **Both Strategies Fail**:
-   - Falls back to manual solving
-   - User solves in browser
+   - Job is skipped with detailed log entry
+   - Check logs for error details
    - Script auto-detects completion
 
 ### Debug Mode:
@@ -161,6 +135,6 @@ logging.basicConfig(level=logging.DEBUG)
 
 The enhanced CaptchaSolver now provides:
 ✅ **Fallback reliability** - Multiple solving methods  
-✅ **Cost optimization** - Free TrOCR first, paid API second  
-✅ **High success rate** - Human solvers when AI fails  
+✅ **Cost effective** - 2Captcha API with manual fallback  
+✅ **High success rate** - Human solvers with timeout/skip  
 ✅ **User control** - Manual override always available

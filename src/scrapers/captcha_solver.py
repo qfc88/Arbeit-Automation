@@ -1,34 +1,22 @@
 """
 Advanced CAPTCHA solver with multiple strategies:
-1. TrOCR (anuashok/ocr-captcha-v3) - Local AI model
-2. 2Captcha API - Human solving service  
-3. Manual fallback - User intervention
+1. 2Captcha API - Human solving service  
+2. Manual fallback - User intervention with timeout/skip
 """
 
-import cv2
-import numpy as np
-from PIL import Image
 import logging
 from typing import Optional, Tuple, Dict
 import io
 import asyncio
 import time
 from playwright.async_api import Page
-import torch
 import re
 import sys
 from pathlib import Path
+from PIL import Image
 
 # Add config path
 sys.path.append(str(Path(__file__).parent.parent / "config"))
-
-# TrOCR imports (optional)
-try:
-    from transformers import VisionEncoderDecoderModel, TrOCRProcessor
-    TROCR_AVAILABLE = True
-except ImportError:
-    TROCR_AVAILABLE = False
-    logging.warning("TrOCR not available. Install transformers and torch for local OCR.")
 
 # Initialize logger after path setup
 sys.path.append(str(Path(__file__).parent.parent / "utils"))
@@ -211,19 +199,12 @@ class CaptchaSolver:
     def __init__(self):
         """Initialize multi-strategy CAPTCHA solver"""
         # Strategy configuration
-        self.strategies = CAPTCHA_SETTINGS.get('solving_strategies', ['trocr', '2captcha', 'manual'])
-        self.trocr_attempts = CAPTCHA_SETTINGS.get('trocr_attempts', 3)
+        self.strategies = CAPTCHA_SETTINGS.get('solving_strategies', ['2captcha', 'manual'])
         self.twocaptcha_attempts = CAPTCHA_SETTINGS.get('twocaptcha_attempts', 3)
         self.manual_timeout = CAPTCHA_SETTINGS.get('manual_timeout', 300)
-        self.confidence_threshold = CAPTCHA_SETTINGS.get('confidence_threshold', 0.7)
+        self.manual_skip_timeout = CAPTCHA_SETTINGS.get('manual_skip_timeout', 300)
         self.reload_between_attempts = CAPTCHA_SETTINGS.get('reload_captcha_between_attempts', True)
         self.max_total_attempts = CAPTCHA_SETTINGS.get('max_total_attempts', 10)
-        
-        # TrOCR configuration
-        self.model_name = CAPTCHA_SETTINGS.get('trocr_model', 'anuashok/ocr-captcha-v3')
-        self.processor = None
-        self.model = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         # 2Captcha configuration
         self.twocaptcha_client = None
@@ -231,15 +212,14 @@ class CaptchaSolver:
         # Statistics tracking
         self.stats = {
             'total_attempts': 0,
-            'trocr_successes': 0,
             'twocaptcha_successes': 0,
             'manual_successes': 0,
+            'manual_skips': 0,
             'failures': 0
         }
         
         logger.info(f"CaptchaSolver initializing with strategies: {self.strategies}")
-        logger.info(f"Device: {self.device}, TrOCR attempts: {self.trocr_attempts}, 2Captcha attempts: {self.twocaptcha_attempts}")
-        logger.info(f"Manual timeout: {self.manual_timeout}s, Reload between attempts: {self.reload_between_attempts}")
+        logger.info(f"2Captcha attempts: {self.twocaptcha_attempts}, Manual timeout: {self.manual_timeout}s")
         logger.info(f"2Captcha API key configured: {'Yes' if TWOCAPTCHA_API_KEY else 'No'}")
         if TWOCAPTCHA_API_KEY:
             logger.info(f"API key: {TWOCAPTCHA_API_KEY[:8]}...{TWOCAPTCHA_API_KEY[-4:]}")
@@ -250,15 +230,6 @@ class CaptchaSolver:
     def _init_strategies(self):
         """Initialize available solving strategies"""
         available_strategies = []
-        
-        # Initialize TrOCR if available
-        if 'trocr' in self.strategies and TROCR_AVAILABLE:
-            try:
-                self._load_trocr_model()
-                available_strategies.append('trocr')
-                logger.info("TrOCR strategy initialized successfully")
-            except Exception as e:
-                logger.warning(f"Failed to initialize TrOCR: {e}")
         
         # Initialize 2Captcha if available
         if '2captcha' in self.strategies and TWOCAPTCHA_AVAILABLE and TWOCAPTCHA_API_KEY:
@@ -300,134 +271,6 @@ class CaptchaSolver:
         except Exception as e:
             logger.warning(f"2Captcha API key validation failed: {e}")
             raise e
-    
-    def _load_trocr_model(self):
-        """Load the pre-trained anuashok/ocr-captcha-v3 model"""
-        try:
-            logger.info(f"Loading {self.model_name} model...")
-            
-            # Load processor and model
-            self.processor = TrOCRProcessor.from_pretrained(self.model_name)
-            self.model = VisionEncoderDecoderModel.from_pretrained(self.model_name)
-            
-            # Move model to appropriate device
-            self.model.to(self.device)
-            self.model.eval()  # Set to evaluation mode
-            
-            logger.info(f"[SUCCESS] Model {self.model_name} loaded successfully on {self.device}")
-            
-        except Exception as e:
-            logger.error(f"[ERROR] Failed to load model {self.model_name}: {e}")
-            logger.info("💡 Fallback: Install requirements with 'pip install transformers torch torchvision'")
-            raise e
-    
-    def preprocess_image_for_trocr(self, image_data: bytes) -> Image.Image:
-        """Preprocess CAPTCHA image specifically for TrOCR model"""
-        try:
-            # Convert bytes to PIL Image
-            image = Image.open(io.BytesIO(image_data))
-            
-            # Convert to RGBA if needed for transparency handling
-            if image.mode == 'RGBA':
-                # Create white background for transparent images
-                background = Image.new("RGBA", image.size, (255, 255, 255, 255))
-                image = Image.alpha_composite(background, image)
-            
-            # Convert to RGB (required by TrOCR)
-            image = image.convert("RGB")
-            
-            # Apply minimal preprocessing to preserve original CAPTCHA characteristics
-            # TrOCR model is robust enough to handle distortions
-            
-            # Optional: Resize if image is too small (TrOCR works better with larger images)
-            width, height = image.size
-            if width < 150 or height < 50:
-                scale_factor = max(150 / width, 50 / height)
-                new_width = int(width * scale_factor)
-                new_height = int(height * scale_factor)
-                image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                logger.debug(f"Resized image from {width}x{height} to {new_width}x{new_height}")
-            
-            return image
-            
-        except Exception as e:
-            logger.error(f"Error preprocessing image for TrOCR: {e}")
-            return None
-    
-    def extract_text_with_trocr(self, image: Image.Image) -> Tuple[str, float]:
-        """Extract text using the fine-tuned TrOCR model"""
-        try:
-            if not self.model or not self.processor:
-                logger.error("Model not loaded properly")
-                return "", 0.0
-            
-            # Prepare image for the model
-            pixel_values = self.processor(image, return_tensors="pt").pixel_values
-            pixel_values = pixel_values.to(self.device)
-            
-            # Generate text with model
-            with torch.no_grad():
-                # Generate with beam search for better accuracy
-                generated_ids = self.model.generate(
-                    pixel_values,
-                    max_length=20,  # Max CAPTCHA length
-                    num_beams=4,    # Beam search for better results  
-                    early_stopping=True,
-                    do_sample=False  # Deterministic output
-                )
-            
-            # Decode the generated text
-            generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-            
-            # Calculate confidence (simplified - TrOCR doesn't provide direct confidence scores)
-            # We use text length and character validity as confidence proxies
-            confidence = self._estimate_confidence(generated_text, image)
-            
-            logger.info(f"TrOCR extracted: '{generated_text}' (confidence: {confidence:.2f})")
-            return generated_text.strip(), confidence
-            
-        except Exception as e:
-            logger.error(f"Error extracting text with TrOCR: {e}")
-            return "", 0.0
-    
-    def _estimate_confidence(self, text: str, image: Image.Image) -> float:
-        """Estimate confidence based on text characteristics and image quality"""
-        try:
-            if not text:
-                return 0.0
-            
-            confidence = 1.0
-            
-            # Length check (typical CAPTCHA length is 4-8 characters)
-            if len(text) < 3 or len(text) > 10:
-                confidence *= 0.7
-            elif 4 <= len(text) <= 8:
-                confidence *= 1.0
-            
-            # Character validity (alphanumeric only)
-            if re.match(r'^[A-Za-z0-9]+$', text):
-                confidence *= 1.0
-            else:
-                confidence *= 0.5
-            
-            # Case consistency (either all upper, all lower, or mixed)
-            if text.isupper() or text.islower():
-                confidence *= 1.0
-            elif any(c.isupper() for c in text) and any(c.islower() for c in text):
-                confidence *= 0.9  # Mixed case is common in CAPTCHAs
-            
-            # Image quality factor (basic check)
-            width, height = image.size
-            if width > 100 and height > 30:
-                confidence *= 1.0
-            else:
-                confidence *= 0.8
-            
-            return min(confidence, 1.0)
-            
-        except Exception as e:
-            logger.debug(f"Error estimating confidence: {e}")
-            return 0.5
     
     def clean_extracted_text(self, text: str) -> str:
         """Clean and normalize extracted text for CAPTCHA submission"""
@@ -505,19 +348,20 @@ class CaptchaSolver:
                     
                 logger.info(f"=== Trying strategy: {strategy.upper()} ===")
                 
-                if strategy == 'trocr':
-                    success = await self._solve_with_trocr(page, captcha_selector, input_selector, submit_selector)
-                    total_attempts_used += self.trocr_attempts
-                    if success:
-                        self.stats['trocr_successes'] += 1
-                elif strategy == '2captcha':
+                if strategy == '2captcha':
                     success = await self._solve_with_2captcha(page, captcha_selector, input_selector, submit_selector)
                     total_attempts_used += self.twocaptcha_attempts
                     if success:
                         self.stats['twocaptcha_successes'] += 1
                 elif strategy == 'manual':
-                    logger.info("Falling back to manual solving...")
-                    return False  # Let job_scraper handle manual solving
+                    success = await self._solve_manual(page, captcha_selector, input_selector, submit_selector)
+                    total_attempts_used += 1
+                    if success:
+                        self.stats['manual_successes'] += 1
+                    else:
+                        self.stats['manual_skips'] += 1
+                        logger.warning(f"Manual CAPTCHA timed out after {self.manual_skip_timeout}s — skipping job")
+                        return False
                 
                 if success:
                     logger.info(f"SUCCESS: CAPTCHA solved with {strategy.upper()}!")
@@ -536,65 +380,6 @@ class CaptchaSolver:
             
         except Exception as e:
             logger.error(f"Error in multi-strategy CAPTCHA solving: {e}")
-            return False
-    
-    async def _solve_with_trocr(self, page: Page, captcha_selector: str, input_selector: str, submit_selector: str) -> bool:
-        """Solve CAPTCHA using TrOCR model"""
-        if not TROCR_AVAILABLE or not self.model:
-            logger.warning("TrOCR not available")
-            return False
-        
-        try:
-            logger.info(f"Trying TrOCR with {self.trocr_attempts} attempts...")
-            
-            for attempt in range(self.trocr_attempts):
-                logger.info(f"TrOCR attempt {attempt + 1}/{self.trocr_attempts}")
-                
-                # Capture CAPTCHA image
-                image_data = await self.capture_captcha_image(page, captcha_selector)
-                if not image_data:
-                    logger.error("Failed to capture CAPTCHA image")
-                    continue
-                
-                # Preprocess image for TrOCR
-                processed_image = self.preprocess_image_for_trocr(image_data)
-                if processed_image is None:
-                    logger.error("Failed to preprocess image")
-                    continue
-                
-                # Extract text using TrOCR model
-                extracted_text, confidence = self.extract_text_with_trocr(processed_image)
-                
-                if not extracted_text:
-                    logger.warning("No text extracted, reloading CAPTCHA...")
-                    await self._reload_captcha(page)
-                    continue
-                
-                # Clean and validate solution
-                solution = self.clean_extracted_text(extracted_text)
-                logger.info(f"TrOCR solution: '{solution}' (confidence: {confidence:.2f})")
-                
-                if not self.validate_solution(solution):
-                    logger.warning(f"Invalid solution format: '{solution}'")
-                    await self._reload_captcha(page)
-                    continue
-                
-                # Submit solution
-                success = await self._submit_solution(page, solution, input_selector, submit_selector, captcha_selector)
-                if success:
-                    self._log_captcha_attempt(True, "trocr", solution, confidence)
-                    return True
-                else:
-                    self._log_captcha_attempt(False, "trocr", solution, confidence)
-                
-                # Wait before next attempt
-                await asyncio.sleep(2)
-            
-            logger.warning("All TrOCR attempts failed")
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error in TrOCR solving: {e}")
             return False
     
     async def _solve_with_2captcha(self, page: Page, captcha_selector: str, input_selector: str, submit_selector: str) -> bool:
@@ -699,6 +484,41 @@ class CaptchaSolver:
                 logger.error(f"2Captcha API error: {e}")
             return False
     
+    async def _solve_manual(self, page: Page, captcha_selector: str, input_selector: str, submit_selector: str) -> bool:
+        """Manual CAPTCHA solving with timeout — user solves in browser, skip if timeout"""
+        try:
+            timeout = self.manual_skip_timeout
+            logger.info(f"=== MANUAL CAPTCHA SOLVING ===")
+            logger.info(f"Please solve the CAPTCHA manually in the browser within {timeout}s")
+            logger.info(f"The job will be SKIPPED if not solved within {timeout} seconds.")
+            
+            start_time = time.time()
+            poll_interval = 3  # check every 3 seconds
+            
+            while (time.time() - start_time) < timeout:
+                elapsed = int(time.time() - start_time)
+                remaining = timeout - elapsed
+                
+                # Check if CAPTCHA was solved (contact info appeared)
+                success = await self._check_captcha_success(page, captcha_selector)
+                if success:
+                    logger.info(f"Manual CAPTCHA solved after {elapsed}s")
+                    self._log_captcha_attempt(True, "manual", "user_input", 1.0)
+                    return True
+                
+                if remaining > 0 and remaining % 60 == 0:
+                    logger.info(f"Waiting for manual CAPTCHA solve... {remaining}s remaining")
+                
+                await asyncio.sleep(poll_interval)
+            
+            logger.warning(f"Manual CAPTCHA timeout after {timeout}s — skipping this job")
+            self._log_captcha_attempt(False, "manual", "timeout", 0.0)
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error in manual CAPTCHA solving: {e}")
+            return False
+    
     async def _submit_solution(self, page: Page, solution: str, input_selector: str, submit_selector: str, captcha_selector: str) -> bool:
         """Submit CAPTCHA solution and check if it was correct"""
         try:
@@ -771,18 +591,14 @@ class CaptchaSolver:
         logger.info(f"📊 CAPTCHA {status}: Method={method}, Solution='{solution}', Confidence={confidence:.2f}")
     
     def get_model_info(self) -> Dict:
-        """Get information about the loaded model"""
+        """Get information about the solver configuration"""
         return {
-            'model_name': self.model_name,
-            'device': self.device,
-            'trocr_attempts': self.trocr_attempts,
             'twocaptcha_attempts': self.twocaptcha_attempts,
             'manual_timeout': self.manual_timeout,
-            'confidence_threshold': self.confidence_threshold,
+            'manual_skip_timeout': self.manual_skip_timeout,
             'reload_between_attempts': self.reload_between_attempts,
             'max_total_attempts': self.max_total_attempts,
             'active_strategies': self.active_strategies,
-            'model_loaded': self.model is not None,
             'statistics': self.stats
         }
     
@@ -791,16 +607,15 @@ class CaptchaSolver:
         if self.stats['total_attempts'] == 0:
             return "No attempts yet"
         
-        total_successes = (self.stats['trocr_successes'] + 
-                          self.stats['twocaptcha_successes'] + 
+        total_successes = (self.stats['twocaptcha_successes'] + 
                           self.stats['manual_successes'])
         
         success_rate = (total_successes / self.stats['total_attempts']) * 100
         
         return (f"Success rate: {success_rate:.1f}% "
-                f"(TrOCR: {self.stats['trocr_successes']}, "
-                f"2Captcha: {self.stats['twocaptcha_successes']}, "
+                f"(2Captcha: {self.stats['twocaptcha_successes']}, "
                 f"Manual: {self.stats['manual_successes']}, "
+                f"Skips: {self.stats['manual_skips']}, "
                 f"Total: {total_successes}/{self.stats['total_attempts']})")
     
     def get_detailed_statistics(self) -> dict:
@@ -809,20 +624,16 @@ class CaptchaSolver:
         if total_attempts == 0:
             return {'no_data': True}
         
-        total_successes = (self.stats['trocr_successes'] + 
-                          self.stats['twocaptcha_successes'] + 
+        total_successes = (self.stats['twocaptcha_successes'] + 
                           self.stats['manual_successes'])
         
         return {
             'total_attempts': total_attempts,
             'total_successes': total_successes,
             'total_failures': self.stats['failures'],
+            'manual_skips': self.stats['manual_skips'],
             'success_rate_percent': (total_successes / total_attempts) * 100,
             'strategy_breakdown': {
-                'trocr': {
-                    'successes': self.stats['trocr_successes'],
-                    'rate_percent': (self.stats['trocr_successes'] / total_attempts) * 100
-                },
                 'twocaptcha': {
                     'successes': self.stats['twocaptcha_successes'], 
                     'rate_percent': (self.stats['twocaptcha_successes'] / total_attempts) * 100
@@ -834,9 +645,9 @@ class CaptchaSolver:
             },
             'configuration': {
                 'strategies': self.strategies,
-                'trocr_attempts': self.trocr_attempts,
                 'twocaptcha_attempts': self.twocaptcha_attempts,
                 'manual_timeout': self.manual_timeout,
+                'manual_skip_timeout': self.manual_skip_timeout,
                 'max_total_attempts': self.max_total_attempts
             }
         }
@@ -855,7 +666,7 @@ async def wait_for_captcha_load(page: Page, selector: str, timeout: int = 10) ->
     """Wait for CAPTCHA image to fully load"""
     try:
         await page.wait_for_selector(selector, timeout=timeout * 1000)
-        await asyncio.sleep(2)  # Extra wait for TrOCR processing
+        await asyncio.sleep(2)  # Extra wait for image loading
         return True
     except:
         return False

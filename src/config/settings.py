@@ -51,12 +51,10 @@ BROWSER_SETTINGS = {
 # =============================================================================
 
 CAPTCHA_SETTINGS = {
-    'trocr_attempts': 0,            # TrOCR attempts before fallback
     'twocaptcha_attempts': 15,       # 2Captcha attempts before fallback
     'manual_timeout': 300,          # Manual solving timeout in seconds (5 min)
-    'confidence_threshold': 0.7,    # TrOCR confidence threshold
-    'solving_strategies': ['trocr', '2captcha', 'manual'],  # Priority order
-    'trocr_model': 'anuashok/ocr-captcha-v3',
+    'manual_skip_timeout': 300,     # Skip job after this many seconds without manual solve
+    'solving_strategies': ['2captcha', 'manual'],  # Priority order
     'reload_captcha_between_attempts': True,
     'max_total_attempts': 20,       # Maximum total attempts across all strategies
 }
