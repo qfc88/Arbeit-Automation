@@ -28,6 +28,8 @@ SCRAPER_SETTINGS = {
     'max_jobs_per_session': 1000,   # Large session capacity
     'enable_resume': True,          # Enable resume functionality
     'use_sessions': True,           # Use session-based file management
+    'concurrency': int(os.getenv('SCRAPER_CONCURRENCY', '6')),  # Parallel browser contexts
+    'block_assets': True,           # Block images/fonts/css for speed
 }
 
 # Browser Configuration
