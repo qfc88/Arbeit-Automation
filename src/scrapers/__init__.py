@@ -1,0 +1,1 @@
+# Initialize external link handler
