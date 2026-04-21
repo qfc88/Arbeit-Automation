@@ -57,6 +57,7 @@ data/backup/
 .env.development
 .env.test
 .env.production
+.env.docker
 
 # OS
 .DS_Store

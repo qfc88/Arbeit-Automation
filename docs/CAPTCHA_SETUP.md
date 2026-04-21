@@ -12,9 +12,9 @@ pip install transformers torch torchvision
 
 ## Configuration
 
-Your API key is already configured in `src/config/settings.py`:
+API key is loaded from environment variable `TWOCAPTCHA_API_KEY` in `src/config/settings.py`:
 ```python
-TWOCAPTCHA_API_KEY = "5865b4e02e5bc91f671a60bc18fd75d1"
+TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
 ```
 
 ## Strategy Flow
@@ -120,7 +120,7 @@ Please solve the CAPTCHA manually in the browser
 ```python
 # Test 2Captcha balance
 from twocaptcha import TwoCaptcha
-solver = TwoCaptcha("5865b4e02e5bc91f671a60bc18fd75d1")
+solver = TwoCaptcha(os.getenv("TWOCAPTCHA_API_KEY"))
 print(f"Balance: ${solver.balance()}")
 ```
 

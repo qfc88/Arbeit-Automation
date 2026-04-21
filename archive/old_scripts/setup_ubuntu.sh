@@ -107,7 +107,7 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=job_market_data
 DB_USER=jobscraper
-DB_PASSWORD=working
+DB_PASSWORD=${DB_PASSWORD:?"Set DB_PASSWORD env var"}
 
 # Application Settings
 PYTHONPATH=/app/src

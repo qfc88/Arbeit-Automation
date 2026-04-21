@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: job_market_data
       POSTGRES_USER: jobscraper
-      POSTGRES_PASSWORD: working
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -36,7 +36,7 @@ services:
       DB_PORT: 5432
       DB_NAME: job_market_data
       DB_USER: jobscraper
-      DB_PASSWORD: working
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
 
       # Application configuration
       ENVIRONMENT: production

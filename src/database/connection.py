@@ -43,7 +43,7 @@ class DatabaseManager:
         self.port = DATABASE_SETTINGS.get('port', 5432)
         self.database = DATABASE_SETTINGS.get('database', 'job_market_data')
         self.username = DATABASE_SETTINGS.get('username', 'postgres')
-        self.password = DATABASE_SETTINGS.get('password', 'working')
+        self.password = DATABASE_SETTINGS.get('password')
         self.min_connections = DATABASE_SETTINGS.get('min_connections', 5)
         self.max_connections = DATABASE_SETTINGS.get('max_connections', 20)
         self.connection_timeout = DATABASE_SETTINGS.get('connection_timeout', 60)

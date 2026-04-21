@@ -4,7 +4,7 @@ set -e
 echo "Starting user initialization script..."
 
 # Create postgres user with superuser privileges if it doesn't exist
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+psql -v ON_ERROR_STOP=1 -v db_password="'$POSTGRES_PASSWORD'" --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     DO \$\$
     BEGIN
         IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres') THEN

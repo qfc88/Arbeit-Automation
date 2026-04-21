@@ -11,7 +11,7 @@ from pathlib import Path
 # =============================================================================
 
 # 2captcha API Configuration
-TWOCAPTCHA_API_KEY = "5865b4e02e5bc91f671a60bc18fd75d1"
+TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
 
 # =============================================================================
 # Scraper Configuration
@@ -70,7 +70,7 @@ DATABASE_SETTINGS = {
     'port': int(os.getenv('DB_PORT', 5432)),
     'database': os.getenv('DB_NAME', 'job_market_data'),
     'username': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'working'),
+    'password': os.getenv('DB_PASSWORD'),
     'min_connections': 5,
     'max_connections': 20,
     'connection_timeout': 60,

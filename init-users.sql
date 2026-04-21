@@ -2,10 +2,10 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres') THEN
-        CREATE USER postgres WITH SUPERUSER CREATEDB CREATEROLE LOGIN PASSWORD 'working';
+        CREATE USER postgres WITH SUPERUSER CREATEDB CREATEROLE LOGIN PASSWORD :'db_password';
         RAISE NOTICE 'Created postgres user successfully';
     ELSE
-        ALTER USER postgres PASSWORD 'working';
+        ALTER USER postgres PASSWORD :'db_password';
         RAISE NOTICE 'Updated postgres user password';
     END IF;
 END
