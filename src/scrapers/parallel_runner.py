@@ -135,6 +135,7 @@ async def run_parallel(
     delay: float = None,
     batch_save_size: int = None,
     headless: bool = None,
+    browser: Optional[Browser] = None,
 ):
     """
     Scrape *job_urls* in parallel using *concurrency* browser contexts.
@@ -154,7 +155,10 @@ async def run_parallel(
     batch_save_size : int
         How many results to collect before calling *on_batch_ready*.
     headless : bool
-        Browser headless mode.
+        Browser headless mode. Ignored when *browser* is provided.
+    browser : Browser, optional
+        Reuse an existing Playwright browser (e.g. the one owned by ``JobScraper``).
+        When omitted, a new browser is launched and closed here.
 
     Returns
     -------
@@ -167,6 +171,9 @@ async def run_parallel(
     block_assets = SCRAPER_SETTINGS.get("block_assets", True)
 
     total = len(job_urls)
+    if total == 0:
+        return []
+
     logger.info(f"Starting parallel scrape: {total} jobs, {concurrency} workers, delay={delay}s")
 
     url_queue: asyncio.Queue = asyncio.Queue()
@@ -180,13 +187,16 @@ async def run_parallel(
     batch_number = 0
     t0 = time.monotonic()
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
+    playwright_ctx = None
+    owns_browser = browser is None
+    if owns_browser:
+        playwright_ctx = await async_playwright().start()
+        browser = await playwright_ctx.chromium.launch(
             headless=headless,
             args=BROWSER_SETTINGS.get("args", []),
         )
 
-        # Start workers
+    try:
         workers = [
             asyncio.create_task(
                 _worker(i, browser, url_queue, result_queue, scrape_fn, sem, delay, block_assets)
@@ -194,7 +204,6 @@ async def run_parallel(
             for i in range(min(concurrency, total))
         ]
 
-        # Collect results while workers run
         done_count = 0
         pending_batch: List[Dict] = []
 
@@ -220,18 +229,20 @@ async def run_parallel(
         await asyncio.gather(*workers)
         await collector
 
-        # Flush remaining
         if on_batch_ready and pending_batch:
             batch_number += 1
             await on_batch_ready(list(pending_batch), batch_number)
-
-        await browser.close()
+    finally:
+        if owns_browser:
+            await browser.close()
+            if playwright_ctx:
+                await playwright_ctx.stop()
 
     elapsed = time.monotonic() - t0
     successes = sum(1 for r in all_results if not r.get("error"))
     logger.info(
         f"Parallel scrape done: {total} jobs in {elapsed:.0f}s "
         f"({successes} ok, {total - successes} errors, "
-        f"{total / elapsed * 60:.0f} jobs/min)"
+        f"{total / max(elapsed, 0.001) * 60:.0f} jobs/min)"
     )
     return all_results

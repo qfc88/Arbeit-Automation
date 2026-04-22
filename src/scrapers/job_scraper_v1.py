@@ -1087,10 +1087,13 @@ class JobScraper:
             return []
     
     async def process_jobs_batch(self, job_urls: List[Dict], batch_size: int = 10) -> List[Dict]:
-        """Process jobs in batches to avoid overwhelming the server"""
+        """Process jobs; route to parallel runner when SCRAPER_SETTINGS['use_parallel'] is on."""
+        if SCRAPER_SETTINGS.get('use_parallel', False):
+            return await self.process_jobs_batch_parallel(job_urls)
+
         all_scraped_jobs = []
         total_jobs = len(job_urls)
-        
+
         # Use single page for all jobs to maintain session
         page = await self.context.new_page()
         
@@ -1161,10 +1164,75 @@ class JobScraper:
             
             # Add configurable delay between requests
             await asyncio.sleep(self.delay_between_jobs)
-        
+
         await page.close()
         return all_scraped_jobs
-    
+
+    async def process_jobs_batch_parallel(self, job_urls: List[Dict]) -> List[Dict]:
+        """
+        Parallel path: N browser contexts drain a shared URL queue.
+
+        Reuses ``self.browser`` (already launched by ``setup_browser``), wraps
+        ``self.scrape_single_job`` so stats still update, and forwards batches
+        to ``self.save_progress`` via ``on_batch_ready``.
+        """
+        from scrapers.parallel_runner import run_parallel
+
+        total = len(job_urls)
+        if total == 0:
+            return []
+
+        concurrency = SCRAPER_SETTINGS.get('concurrency', 6)
+        delay = SCRAPER_SETTINGS.get('delay_between_jobs', self.delay_between_jobs)
+        batch_save_size = SCRAPER_SETTINGS.get('save_every_n_jobs', self.batch_size)
+
+        logger.info(
+            f"[PARALLEL] {total} jobs x {concurrency} workers "
+            f"(delay={delay}s, save every {batch_save_size})"
+        )
+
+        async def _scrape_fn(page, job_data):
+            result = await self.scrape_single_job(page, job_data)
+            self.stats['total_processed'] += 1
+            if result.get('captcha_solved'):
+                self.stats['captcha_encounters'] += 1
+                self.stats['captcha_solved'] += 1
+            if not result.get('error'):
+                self.stats['successful_scrapes'] += 1
+            else:
+                self.stats['errors'] += 1
+            return result
+
+        async def _on_batch_ready(batch, batch_number):
+            await self.save_progress(batch, batch_number)
+            success_rate = (
+                self.stats['successful_scrapes']
+                / max(self.stats['total_processed'], 1)
+            ) * 100
+            logger.info(
+                f"[PROGRESS] {self.stats['total_processed']}/{total} "
+                f"({success_rate:.1f}% success) — batch {batch_number} saved"
+            )
+            if self.stats['captcha_encounters'] > 0:
+                captcha_rate = (
+                    self.stats['captcha_solved']
+                    / self.stats['captcha_encounters']
+                ) * 100
+                logger.info(
+                    f"[CAPTCHA] {self.stats['captcha_solved']}/"
+                    f"{self.stats['captcha_encounters']} solved ({captcha_rate:.1f}%)"
+                )
+
+        return await run_parallel(
+            job_urls=job_urls,
+            scrape_fn=_scrape_fn,
+            on_batch_ready=_on_batch_ready,
+            concurrency=concurrency,
+            delay=delay,
+            batch_save_size=batch_save_size,
+            browser=self.browser,
+        )
+
     async def validate_job_data(self, job_data: Dict) -> bool:
         """Validate extracted job data"""
         required_fields = ['profession', 'company_name', 'source_url']

@@ -30,6 +30,7 @@ SCRAPER_SETTINGS = {
     'use_sessions': True,           # Use session-based file management
     'concurrency': int(os.getenv('SCRAPER_CONCURRENCY', '6')),  # Parallel browser contexts
     'block_assets': True,           # Block images/fonts/css for speed
+    'use_parallel': os.getenv('SCRAPER_USE_PARALLEL', 'false').lower() in ('1', 'true', 'yes'),
 }
 
 # Browser Configuration
