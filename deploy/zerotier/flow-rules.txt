@@ -1,0 +1,37 @@
+#
+# ZeroTier flow rules for the admin network.
+# Paste into: my.zerotier.com -> Network -> Flow Rules.
+#
+# Intent: deny-by-default, admins reach only the home server's admin surface
+# (nginx :80) and SSH (:22). No lateral peer-to-peer chatter.
+#
+# Tag layout:
+#   role=admin   -> admin laptops/phones authorised to reach the home server
+#   role=server  -> the home server itself
+
+tag role
+  id 1
+  enum 1 admin
+  enum 2 server
+;
+
+# Allow handshake + established return traffic
+accept ipprotocol icmp;
+accept ipprotocol icmpv6;
+
+# Admins -> server on admin ports only
+accept
+  tor role admin
+  and tand role server
+  and dport 22 80
+  and ipprotocol tcp
+;
+
+# Server -> anywhere (for pushing responses; replies only)
+accept
+  tor role server
+  and ipprotocol tcp
+;
+
+# Drop everything else
+drop;

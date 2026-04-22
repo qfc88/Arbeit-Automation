@@ -1,0 +1,29 @@
+#
+# VPS side of the WireGuard tunnel (server role).
+#
+# Save to /etc/wireguard/wg0.conf on the VPS, then:
+#   wg-quick up wg0
+#   systemctl enable wg-quick@wg0
+#
+# Generate keys once:
+#   wg genkey | tee vps.key | wg pubkey > vps.pub
+#   wg genkey | tee home.key | wg pubkey > home.pub
+#
+# The VPS *listens*; the home server dials out. This is deliberate: the home
+# ISP almost certainly NATs inbound, and we don't want the home to require
+# port forwarding.
+#
+
+[Interface]
+Address    = 10.8.0.1/24
+ListenPort = 51820
+PrivateKey = REPLACE_WITH_vps.key
+
+# Route 10.8.0.0/24 stays within WireGuard (no extra iptables rules needed
+# unless you want to masquerade home traffic through the VPS — we don't).
+
+[Peer]
+# home server
+PublicKey  = REPLACE_WITH_home.pub
+AllowedIPs = 10.8.0.2/32
+# No Endpoint line — the home side initiates the handshake.

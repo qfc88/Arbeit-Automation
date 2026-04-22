@@ -1,0 +1,21 @@
+#
+# Home side of the WireGuard tunnel (client role).
+#
+# Save to /etc/wireguard/wg0.conf on the home server, then:
+#   wg-quick up wg0
+#   systemctl enable wg-quick@wg0
+#
+# The home peer dials out to the VPS on UDP/51820. PersistentKeepalive keeps
+# the NAT pinhole alive so the VPS can push traffic back through the tunnel.
+#
+
+[Interface]
+Address    = 10.8.0.2/24
+PrivateKey = REPLACE_WITH_home.key
+
+[Peer]
+# VPS
+PublicKey           = REPLACE_WITH_vps.pub
+Endpoint            = vps.yourdomain:51820
+AllowedIPs          = 10.8.0.0/24
+PersistentKeepalive = 25
