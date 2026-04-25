@@ -70,6 +70,8 @@ Thumbs.db
 
 # Docker
 .dockerignore
+# but keep per-build .dockerignore files that ship with the repo
+!frontend/.dockerignore
 
 # Temporary files
 *.tmp
