@@ -13,8 +13,9 @@
 #   - ml-inference uses the NVIDIA runtime (requires nvidia-container-toolkit).
 #   - All services get restart: unless-stopped.
 #
-# Services api / frontend / ml-inference are built in Pha 3; their stanzas are
-# placeholders commented out until their Dockerfiles exist.
+# Pha 3 services (api, frontend, ml-inference) are wired in. The baseline ML
+# image is CPU-only; swap to a CUDA base image when fine-tuning gbert-base
+# (Pha 3.4 step 3) and uncomment the nvidia runtime block.
 #
 
 services:
@@ -47,6 +48,8 @@ services:
     depends_on:
       - job-scraper
       - monitor
+      - api
+      - frontend
     ports:
       - "80:80"
       - "443:443"
@@ -58,54 +61,64 @@ services:
       - scraper-network
     restart: unless-stopped
 
-  # -------------------------------------------------------------------------
-  # Pha 3 placeholders — uncomment once src/api, frontend/, src/ml land.
-  # -------------------------------------------------------------------------
-  #
-  # api:
-  #   build:
-  #     context: .
-  #     dockerfile: src/api/Dockerfile
-  #   environment:
-  #     DB_HOST: postgres
-  #     DB_PASSWORD: ${POSTGRES_PASSWORD}
-  #   ports:
-  #     - "127.0.0.1:8001:8001"
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   networks:
-  #     - scraper-network
-  #   restart: unless-stopped
-  #
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #   environment:
-  #     NEXT_PUBLIC_API_URL: /api
-  #   ports:
-  #     - "127.0.0.1:3000:3000"
-  #   networks:
-  #     - scraper-network
-  #   restart: unless-stopped
-  #
-  # ml-inference:
-  #   build:
-  #     context: .
-  #     dockerfile: src/ml/Dockerfile
-  #   runtime: nvidia
-  #   environment:
-  #     NVIDIA_VISIBLE_DEVICES: all
-  #     NVIDIA_DRIVER_CAPABILITIES: compute,utility
-  #   ports:
-  #     - "127.0.0.1:8002:8002"
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             count: 1
-  #             capabilities: [gpu]
-  #   networks:
-  #     - scraper-network
-  #   restart: unless-stopped
+  api:
+    build:
+      context: .
+      dockerfile: src/api/Dockerfile
+    container_name: job-scraper-api
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: job_market_data
+      DB_USER: jobscraper
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      API_JWT_SECRET: ${API_JWT_SECRET}
+      API_CORS_ORIGINS: "http://frontend:3000,http://admin.home,https://jobs.yourdomain"
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - scraper-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: job-scraper-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - api
+    networks:
+      - scraper-network
+    restart: unless-stopped
+
+  ml-inference:
+    build:
+      context: .
+      dockerfile: src/ml/Dockerfile
+    container_name: job-scraper-ml
+    environment:
+      ML_MODEL_PATH: /app/data/ml/baseline.joblib
+      ML_RELOAD_TOKEN: ${ML_RELOAD_TOKEN:-}
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - ./data/ml:/app/data/ml:ro
+    networks:
+      - scraper-network
+    restart: unless-stopped
+    # Uncomment when the GPU image lands (Pha 3.4 step 3):
+    # runtime: nvidia
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
