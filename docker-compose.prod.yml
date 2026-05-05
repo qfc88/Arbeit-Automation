@@ -20,26 +20,18 @@
 
 services:
   postgres:
-    ports:
-      - "127.0.0.1:5432:5432"
     restart: unless-stopped
 
   job-scraper:
-    ports:
-      - "127.0.0.1:8000:8000"
     restart: unless-stopped
     environment:
       SCRAPER_USE_PARALLEL: "true"
       SCRAPER_CONCURRENCY: "6"
 
   adminer:
-    ports:
-      - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
   monitor:
-    ports:
-      - "127.0.0.1:9000:9000"
     restart: unless-stopped
 
   nginx:

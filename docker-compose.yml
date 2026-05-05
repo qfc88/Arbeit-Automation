@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: job-scraper-db
@@ -15,7 +12,7 @@ services:
       - ./src/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./init-users.sql:/docker-entrypoint-initdb.d/02-init-users.sql:ro
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jobscraper -d job_market_data"]
       interval: 10s
@@ -24,54 +21,37 @@ services:
     networks:
       - scraper-network
 
-  # Job Scraper Application
   job-scraper:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: job-scraper-app
+    env_file: .env.docker
     environment:
-      # Database configuration
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: job_market_data
       DB_USER: jobscraper
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-
-      # Application configuration
       ENVIRONMENT: production
       PYTHONPATH: /app/src
-
-      # Browser configuration for Docker
       DISPLAY: :99
-
-      # Scraper settings - 4 CORE/8GB SERVER OPTIMIZED
       SCRAPER_HEADLESS: "true"
-      SCRAPER_BATCH_SIZE: 25              # Optimized for 4 cores
-      MAX_JOBS_PER_SESSION: 1000          # Higher limit for 8GB RAM
-
-      # Enable V2 automation mode with enhanced features
+      SCRAPER_BATCH_SIZE: "25"
+      MAX_JOBS_PER_SESSION: "1000"
       AUTOMATION_MODE: "true"
       AUTO_SOLVE_CAPTCHA: "true"
-      PIPELINE_VERSION: "v2"
-      ENABLE_COMPREHENSIVE_VALIDATION: "true"
-      ENABLE_ENHANCED_CLEANING: "true"
-      ENABLE_SINGLE_DB_LOAD: "true"
-      ENABLE_REALTIME_ENHANCEMENT: "true"
-      
     volumes:
       - ./data:/app/data
       - scraper_logs:/app/data/logs
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - scraper-network
     restart: unless-stopped
-    
-    # Resource limits
     deploy:
       resources:
         limits:
@@ -81,12 +61,11 @@ services:
           memory: 3G
           cpus: '1.5'
 
-  # Database management UI
   adminer:
     image: adminer:latest
     container_name: job-scraper-adminer
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       ADMINER_DEFAULT_SERVER: postgres
     depends_on:
@@ -94,14 +73,13 @@ services:
     networks:
       - scraper-network
 
-  # Monitoring dashboard
   monitor:
     build:
       context: .
       dockerfile: Dockerfile.monitor
     container_name: job-scraper-monitor
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9002:9000"
     volumes:
       - ./data:/app/data:ro
       - scraper_logs:/app/logs:ro
