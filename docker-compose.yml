@@ -81,7 +81,7 @@ services:
           memory: 3G
           cpus: '1.5'
 
-  # Optional: Adminer for database management
+  # Database management UI
   adminer:
     image: adminer:latest
     container_name: job-scraper-adminer
@@ -93,12 +93,10 @@ services:
       - postgres
     networks:
       - scraper-network
-    profiles:
-      - admin
 
-  # Optional: Monitoring with simple HTTP server
+  # Monitoring dashboard
   monitor:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile.monitor
     container_name: job-scraper-monitor
@@ -109,8 +107,6 @@ services:
       - scraper_logs:/app/logs:ro
     networks:
       - scraper-network
-    profiles:
-      - monitoring
 
 volumes:
   postgres_data:
