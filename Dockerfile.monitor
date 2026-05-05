@@ -6,8 +6,7 @@ WORKDIR /app
 # Install Flask for web interface
 RUN pip install flask gunicorn
 
-# Copy monitoring script
-COPY monitoring/ ./monitoring/
+# Copy monitoring script (uses inline templates, no external assets needed)
 COPY scripts/monitor_server.py ./
 
 # Create directories
