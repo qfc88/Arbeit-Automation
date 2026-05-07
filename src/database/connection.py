@@ -10,25 +10,8 @@ from contextlib import asynccontextmanager
 from typing import Optional, Dict, List, Any
 import json
 from pathlib import Path
-import sys
 
-# Add config to path
-sys.path.append(str(Path(__file__).parent.parent / "config"))
-
-try:
-    # Try to import from config package
-    from settings import DATABASE_SETTINGS
-except ImportError:
-    try:
-        # Fallback: try direct import from config directory
-        from config.settings import DATABASE_SETTINGS
-    except ImportError:
-        # No fallback - require proper settings.py
-        raise ImportError(
-            "[ERROR] DATABASE_SETTINGS not found! "
-            "Please ensure src/config/settings.py exists and is properly configured. "
-            "Run: python scripts/setup_database.py to initialize."
-        )
+from config.settings import DATABASE_SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +52,16 @@ class DatabaseManager:
             self.connection_stats['total_connections'] += 1
             logger.info("Connecting to PostgreSQL database...")
             
+            # URL-encode credentials (password may contain @, #, % etc.)
+            from urllib.parse import quote
+            encoded_user = quote(self.username, safe='')
+            encoded_pass = quote(self.password or '', safe='')
+            
             # Build connection string with SSL mode
             if self.ssl_mode and self.ssl_mode != 'prefer':
-                dsn = f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}?sslmode={self.ssl_mode}"
+                dsn = f"postgresql://{encoded_user}:{encoded_pass}@{self.host}:{self.port}/{self.database}?sslmode={self.ssl_mode}"
             else:
-                dsn = f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+                dsn = f"postgresql://{encoded_user}:{encoded_pass}@{self.host}:{self.port}/{self.database}"
             
             # Create connection pool with enhanced settings
             self.pool = await asyncpg.create_pool(

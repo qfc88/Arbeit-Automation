@@ -39,13 +39,13 @@ export default async function HomePage({
       >
         <input
           name="q"
-          placeholder="Beruf"
+          placeholder="Job title"
           defaultValue={searchParams.q ?? ""}
           style={inputStyle}
         />
         <input
           name="location"
-          placeholder="Ort"
+          placeholder="Location"
           defaultValue={searchParams.location ?? ""}
           style={inputStyle}
         />
@@ -54,7 +54,7 @@ export default async function HomePage({
           defaultValue={searchParams.category ?? ""}
           style={{ ...inputStyle, minWidth: 160 }}
         >
-          <option value="">Alle Kategorien</option>
+          <option value="">All Categories</option>
           {categories.map((c) => (
             <option key={c.name} value={c.name}>
               {c.name} ({c.count})
@@ -62,12 +62,12 @@ export default async function HomePage({
           ))}
         </select>
         <button type="submit" style={buttonStyle}>
-          Suchen
+          Search
         </button>
       </form>
 
       <p style={{ color: "#666", fontSize: 14 }}>
-        {total.toLocaleString("de-DE")} Treffer · Seite {page} / {totalPages}
+        {total.toLocaleString()} results · Page {page} / {totalPages}
       </p>
 
       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
@@ -123,11 +123,11 @@ export default async function HomePage({
       {totalPages > 1 ? (
         <nav style={{ marginTop: "1rem" }}>
           {page > 1 ? (
-            <Link href={pageHref(searchParams, page - 1)}>← Zurück</Link>
+            <Link href={pageHref(searchParams, page - 1)}>← Previous</Link>
           ) : null}
           {" "}
           {page < totalPages ? (
-            <Link href={pageHref(searchParams, page + 1)}>Weiter →</Link>
+            <Link href={pageHref(searchParams, page + 1)}>Next →</Link>
           ) : null}
         </nav>
       ) : null}

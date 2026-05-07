@@ -1,0 +1,26 @@
+[Unit]
+Description=Deutsch DE Job Scraper - Next.js Frontend
+After=network.target job-api.service
+Wants=job-api.service
+
+[Service]
+Type=simple
+User=work
+Group=work
+WorkingDirectory=/home/work/Deutsch_DE_T/frontend
+Environment=NODE_ENV=production
+Environment=NEXT_PUBLIC_API_URL=/api
+Environment=API_INTERNAL_URL=http://localhost:8001/api
+Environment=PATH=/home/work/anaconda3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/home/work
+
+ExecStart=/home/work/anaconda3/bin/npx next start --port 3000
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=job-frontend
+
+[Install]
+WantedBy=multi-user.target

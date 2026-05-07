@@ -45,15 +45,15 @@ async def main():
         logger.info("=' Configuration Options:")
         
         # CAPTCHA solving mode
-        captcha_choice = input("Enable auto-CAPTCHA solving with TrOCR? (y/n): ").strip().lower()
+        captcha_choice = input("Enable auto-CAPTCHA solving with 2Captcha? (y/n): ").strip().lower()
         auto_solve_captcha = captcha_choice == 'y'
         
         if auto_solve_captcha:
-            logger.info("> TrOCR auto-CAPTCHA solver enabled")
-            logger.info("=� First job may need CAPTCHA, then others should be fast")
+            logger.info("> 2Captcha auto-CAPTCHA solver enabled")
+            logger.info("First job may need CAPTCHA, then others should be fast")
         else:
-            logger.info("=d Manual CAPTCHA solving mode")
-            logger.info("=� You'll need to solve CAPTCHAs manually when they appear")
+            logger.info("Manual CAPTCHA solving mode (30s timeout)")
+            logger.info("You'll need to solve CAPTCHAs manually when they appear")
         
         # Resume option
         resume_choice = input("Resume from existing progress? (y/n): ").strip().lower()
@@ -84,9 +84,9 @@ async def main():
         # Run scraping
         logger.info("=w Starting job detail extraction...")
         logger.info("=� Extracting 11 required fields per assignment:")
-        logger.info("   " Profession, Salary, Company, Location, Start Date")
-        logger.info("   " Telephone, Email, Job Description, Ref-Nr")
-        logger.info("   " External Link, Application Link")
+        logger.info("   - Profession, Salary, Company, Location, Start Date")
+        logger.info("   - Telephone, Email, Job Description, Ref-Nr")
+        logger.info("   - External Link, Application Link")
         
         await scraper.run(
             input_csv_path=str(input_path),
@@ -113,7 +113,7 @@ async def main():
             file_path = output_dir / filename
             if file_path.exists():
                 file_size = file_path.stat().st_size / 1024  # KB
-                logger.info(f"   " {filename} ({file_size:.1f} KB)")
+                logger.info(f"   {filename} ({file_size:.1f} KB)")
         
         logger.info("=" * 50)
         return True

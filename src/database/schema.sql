@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     -- Deduplication
     content_hash VARCHAR(64),                       -- Hash for duplicate detection
     
+    -- ML categorization (from migration 001)
+    predicted_category VARCHAR(64),                 -- ML-predicted job category
+    category_confidence NUMERIC(3,2),               -- Prediction confidence 0.00-1.00
+    category_source VARCHAR(16) DEFAULT 'ml'        -- 'ml' or 'human_override'
+        CHECK (category_source IN ('ml', 'human_override')),
+    
     -- Indexes and constraints
     CONSTRAINT unique_source_url UNIQUE(source_url)
 );
@@ -95,6 +101,10 @@ CREATE INDEX IF NOT EXISTS idx_jobs_content_hash ON jobs(content_hash);
 -- Composite indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_jobs_company_location ON jobs(company_name, location);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_scraped ON jobs(status, scraped_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_predicted_category ON jobs(predicted_category)
+    WHERE predicted_category IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_jobs_low_confidence ON jobs(category_confidence)
+    WHERE category_confidence IS NOT NULL AND category_confidence < 0.6;
 
 -- =============================================================================
 -- Contact Information Table
@@ -143,6 +153,24 @@ CREATE TABLE IF NOT EXISTS contact_details (
 
 CREATE INDEX IF NOT EXISTS idx_contact_job_id ON contact_details(job_id);
 CREATE INDEX IF NOT EXISTS idx_contact_primary_email ON contact_details(primary_email);
+
+-- =============================================================================
+-- ML Feedback Table (from migration 001)
+-- Tracks human corrections for retraining
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS ml_feedback (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    predicted_category VARCHAR(64),
+    predicted_confidence NUMERIC(3,2),
+    corrected_category VARCHAR(64) NOT NULL,
+    corrected_by VARCHAR(64) NOT NULL,
+    corrected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_feedback_job_id ON ml_feedback(job_id);
+CREATE INDEX IF NOT EXISTS idx_ml_feedback_corrected_at ON ml_feedback(corrected_at DESC);
 
 -- =============================================================================
 -- Scraping Sessions Table
@@ -395,4 +423,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 INSERT INTO schema_version (version, description) 
 VALUES ('1.0.0', 'Initial schema with jobs, companies, contacts, sessions and quality metrics')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_version (version, description)
+VALUES ('1.1.0', 'ML categorization: predicted_category, category_confidence, ml_feedback table')
 ON CONFLICT (version) DO NOTHING;

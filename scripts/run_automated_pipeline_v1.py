@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Automated Pipeline Runner for Docker
-Runs the complete job scraper pipeline with automation and monitoring
+Automated Pipeline Runner — Simple/Docker variant.
+
+DEPRECATED: Use run_automated_pipeline.py (V2) instead.
+This script is kept for backward compatibility with existing Docker entrypoints.
+V2 adds comprehensive data cleaning and enhanced validation.
 """
 
 import asyncio

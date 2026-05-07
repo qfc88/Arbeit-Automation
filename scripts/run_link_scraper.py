@@ -5,6 +5,7 @@ Standalone script for collecting job URLs from arbeitsagentur.de
 Can be run independently or as part of full pipeline
 """
 
+import asyncio
 import sys
 import logging
 from pathlib import Path
@@ -34,7 +35,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def main():
+async def main():
     """Main function for Phase 1: Link Collection"""
     logger.info("=� PHASE 1: JOB URL COLLECTION")
     logger.info("=" * 50)
@@ -58,13 +59,13 @@ def main():
                 return True
             elif choice == 'i':
                 logger.info("= Running incremental scrape...")
-                df = scraper.incremental_scrape()
+                df = await scraper.incremental_scrape()
             else:
-                logger.info("= Running full re-scrape...")
-                df = scraper.run_scraping()
+                logger.info("= Running full re-scrape...")
+                df = await scraper.run_scraping()
         else:
-            logger.info("=w No existing data found, starting fresh scrape...")
-            df = scraper.run_scraping()
+            logger.info("=w No existing data found, starting fresh scrape...")
+            df = await scraper.run_scraping()
         
         # Verify results
         if df is not None and len(df) > 0:
@@ -85,5 +86,5 @@ def main():
         return False
 
 if __name__ == "__main__":
-    success = main()
+    success = asyncio.run(main())
     sys.exit(0 if success else 1)

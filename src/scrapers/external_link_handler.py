@@ -10,13 +10,8 @@ from playwright.async_api import Page, BrowserContext
 import logging
 from urllib.parse import urlparse, parse_qs, urljoin
 from datetime import datetime
-import sys
 from pathlib import Path
 
-# Add project paths
-sys.path.append(str(Path(__file__).parent.parent / "utils"))
-
-# Setup logging
 logger = logging.getLogger(__name__)
 
 class ExternalLinkHandler:

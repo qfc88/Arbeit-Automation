@@ -11,20 +11,10 @@ import asyncio
 import time
 from playwright.async_api import Page
 import re
-import sys
 from pathlib import Path
 from PIL import Image
 
-# Add config path
-sys.path.append(str(Path(__file__).parent.parent / "config"))
-
-# Initialize logger after path setup
-sys.path.append(str(Path(__file__).parent.parent / "utils"))
-try:
-    from logger import get_scraper_logger
-    logger = get_scraper_logger('scrapers.captcha_solver')
-except ImportError:
-    logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Manual 2Captcha implementation using requests
 try:
@@ -37,20 +27,9 @@ except ImportError:
     TWOCAPTCHA_AVAILABLE = False
     logging.warning("Requests not available. Install requests for 2Captcha API.")
 
-# Import settings - no fallback, fail fast if not configured
-try:
-    from settings import TWOCAPTCHA_API_KEY, CAPTCHA_SETTINGS
-except ImportError:
-    try:
-        from config.settings import TWOCAPTCHA_API_KEY, CAPTCHA_SETTINGS
-    except ImportError as e:
-        raise ImportError(
-            f"[ERROR] Settings import failed: {e}\n"
-            "Please ensure src/config/settings.py exists and contains required settings."
-        )
+# Import settings
+from config.settings import TWOCAPTCHA_API_KEY, CAPTCHA_SETTINGS
 
-# Setup logging
-logger = logging.getLogger(__name__)
 
 class Manual2CaptchaClient:
     """Manual 2Captcha API client using requests"""

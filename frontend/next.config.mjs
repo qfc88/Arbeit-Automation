@@ -2,9 +2,14 @@
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
-  // The home nginx terminates /api/* upstream-side, so the frontend just
-  // calls relative /api/... and lets nginx route it to the FastAPI service.
-  // In dev, NEXT_PUBLIC_API_URL can override.
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${process.env.API_INTERNAL_URL ?? "http://localhost:8001/api"}/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

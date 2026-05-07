@@ -10,8 +10,8 @@ from pathlib import Path
 # API Configurations
 # =============================================================================
 
-# 2captcha API Configuration
-TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
+# 2captcha API Configuration — set via TWOCAPTCHA_API_KEY env var or .env file
+TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY", "")
 
 # =============================================================================
 # Scraper Configuration
@@ -21,16 +21,16 @@ TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
 SCRAPER_SETTINGS = {
     'headless': True,               # Set to True for faster performance
     'timeout': 15000,               # Reduced timeout for faster processing
-    'delay_between_jobs': 0.5,      # Minimal delay for speed
+    'delay_between_jobs': 1.0,      # Base delay per worker (adaptive controller adjusts)
     'batch_size': 100,              # Large batch size for efficiency
     'max_retries': 2,               # Balanced retries
     'save_every_n_jobs': 50,        # Save less frequently for speed
-    'max_jobs_per_session': 1000,   # Large session capacity
+    'max_jobs_per_session': 5000,   # Large session capacity
     'enable_resume': True,          # Enable resume functionality
     'use_sessions': True,           # Use session-based file management
     'concurrency': int(os.getenv('SCRAPER_CONCURRENCY', '6')),  # Parallel browser contexts
     'block_assets': True,           # Block images/fonts/css for speed
-    'use_parallel': os.getenv('SCRAPER_USE_PARALLEL', 'false').lower() in ('1', 'true', 'yes'),
+    'use_parallel': os.getenv('SCRAPER_USE_PARALLEL', 'true').lower() in ('1', 'true', 'yes'),
 }
 
 # Browser Configuration
@@ -55,8 +55,8 @@ BROWSER_SETTINGS = {
 
 CAPTCHA_SETTINGS = {
     'twocaptcha_attempts': 15,       # 2Captcha attempts before fallback
-    'manual_timeout': 300,          # Manual solving timeout in seconds (5 min)
-    'manual_skip_timeout': 300,     # Skip job after this many seconds without manual solve
+    'manual_timeout': 30,           # Manual solving timeout in seconds (30s)
+    'manual_skip_timeout': 30,      # Skip job after this many seconds without manual solve
     'solving_strategies': ['2captcha', 'manual'],  # Priority order
     'reload_captcha_between_attempts': True,
     'max_total_attempts': 20,       # Maximum total attempts across all strategies

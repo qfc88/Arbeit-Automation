@@ -13,7 +13,7 @@ from typing import List, Dict, Any
 import uuid
 
 # Add src to path
-sys.path.append(str(Path(__file__).parent / "src"))
+sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from database.connection import db_manager, init_database, close_database
 

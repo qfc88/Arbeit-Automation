@@ -16,17 +16,7 @@ import uuid
 import hashlib
 import os
 import glob
-import sys
-
-# Import centralized settings
-sys.path.append(str(Path(__file__).parent.parent / "config"))
-try:
-    from settings import PATHS, FILE_MANAGEMENT_SETTINGS
-except ImportError as e:
-    raise ImportError(
-        f"[ERROR] Settings import failed: {e}\n"
-        "Please ensure src/config/settings.py exists and contains PATHS and FILE_MANAGEMENT_SETTINGS"
-    )
+from config.settings import PATHS, FILE_MANAGEMENT_SETTINGS
 
 logger = logging.getLogger(__name__)
 

@@ -13,28 +13,10 @@ from typing import List, Dict, Any, Optional, Tuple
 import hashlib
 from datetime import datetime
 import uuid
-import sys
 import re
 
-# Add parent directories to path for imports
-sys.path.append(str(Path(__file__).parent))
-sys.path.append(str(Path(__file__).parent.parent / "config"))
-
-try:
-    from .connection import db_manager, init_database, close_database
-    # Try to import from config package
-    sys.path.append(str(Path(__file__).parent.parent / "config"))
-    from settings import DATABASE_SETTINGS, VALIDATION_SETTINGS, DATA_CLEANING_SETTINGS
-except ImportError:
-    try:
-        # Fallback: try direct import from config directory
-        from config.settings import DATABASE_SETTINGS, VALIDATION_SETTINGS, DATA_CLEANING_SETTINGS
-    except ImportError as e:
-        raise ImportError(
-            f"[ERROR] Settings import failed: {e}\n"
-            "Please ensure src/config/settings.py exists and contains: "
-            "DATABASE_SETTINGS, VALIDATION_SETTINGS, DATA_CLEANING_SETTINGS"
-        )
+from .connection import db_manager, init_database, close_database
+from config.settings import DATABASE_SETTINGS, VALIDATION_SETTINGS, DATA_CLEANING_SETTINGS
 
 logger = logging.getLogger(__name__)
 

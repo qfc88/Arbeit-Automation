@@ -27,6 +27,7 @@ services:
     environment:
       SCRAPER_USE_PARALLEL: "true"
       SCRAPER_CONCURRENCY: "6"
+      TWOCAPTCHA_API_KEY: ${TWOCAPTCHA_API_KEY:-}
 
   adminer:
     restart: unless-stopped
@@ -64,6 +65,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       API_JWT_SECRET: ${API_JWT_SECRET}
       API_CORS_ORIGINS: "http://frontend:3000,http://admin.home,https://jobs.yourdomain"
+      TWOCAPTCHA_API_KEY: ${TWOCAPTCHA_API_KEY:-}
     ports:
       - "127.0.0.1:8001:8001"
     depends_on:
@@ -92,9 +94,11 @@ services:
     build:
       context: .
       dockerfile: src/ml/Dockerfile
+      args:
+        BASE: nvidia/cuda:12.4.1-runtime-ubuntu22.04
     container_name: job-scraper-ml
     environment:
-      ML_MODEL_PATH: /app/data/ml/baseline.joblib
+      ML_MODEL_PATH: /app/src/ml/models/gbert_category
       ML_RELOAD_TOKEN: ${ML_RELOAD_TOKEN:-}
     ports:
       - "127.0.0.1:8002:8002"
@@ -103,12 +107,11 @@ services:
     networks:
       - scraper-network
     restart: unless-stopped
-    # Uncomment when the GPU image lands (Pha 3.4 step 3):
-    # runtime: nvidia
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

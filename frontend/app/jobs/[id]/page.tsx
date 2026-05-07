@@ -18,7 +18,7 @@ export default async function JobPage({
   return (
     <article>
       <Link href="/" style={{ color: "#666", fontSize: 14 }}>
-        ← Zur Suche
+        ← Back to Search
       </Link>
       <h1 style={{ marginTop: 12 }}>{job.profession}</h1>
       <p style={{ color: "#444", marginTop: -8 }}>
@@ -27,20 +27,20 @@ export default async function JobPage({
       </p>
 
       <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "0.25rem 1rem", fontSize: 14 }}>
-        {job.salary ? (<><dt style={dt}>Gehalt</dt><dd>{job.salary}</dd></>) : null}
-        {job.job_type ? (<><dt style={dt}>Anstellungsart</dt><dd>{job.job_type}</dd></>) : null}
-        {job.predicted_category ? (<><dt style={dt}>Kategorie</dt><dd>{job.predicted_category}</dd></>) : null}
-        {job.email ? (<><dt style={dt}>E-Mail</dt><dd><a href={`mailto:${job.email}`}>{job.email}</a></dd></>) : null}
-        {job.telephone ? (<><dt style={dt}>Telefon</dt><dd>{job.telephone}</dd></>) : null}
+        {job.salary ? (<><dt style={dt}>Salary</dt><dd>{job.salary}</dd></>) : null}
+        {job.job_type ? (<><dt style={dt}>Job Type</dt><dd>{job.job_type}</dd></>) : null}
+        {job.predicted_category ? (<><dt style={dt}>Category</dt><dd>{job.predicted_category}</dd></>) : null}
+        {job.email ? (<><dt style={dt}>Email</dt><dd><a href={`mailto:${job.email}`}>{job.email}</a></dd></>) : null}
+        {job.telephone ? (<><dt style={dt}>Phone</dt><dd>{job.telephone}</dd></>) : null}
         {job.application_link ? (
-          <><dt style={dt}>Bewerbung</dt><dd><a href={job.application_link} target="_blank" rel="noreferrer">Direkt bewerben</a></dd></>
+          <><dt style={dt}>Application</dt><dd><a href={job.application_link} target="_blank" rel="noreferrer">Apply directly</a></dd></>
         ) : null}
-        {job.ref_nr ? (<><dt style={dt}>Ref-Nr.</dt><dd>{job.ref_nr}</dd></>) : null}
+        {job.ref_nr ? (<><dt style={dt}>Ref No.</dt><dd>{job.ref_nr}</dd></>) : null}
       </dl>
 
       {job.job_description ? (
         <section style={{ marginTop: "1.5rem" }}>
-          <h2>Beschreibung</h2>
+          <h2>Description</h2>
           <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
             {job.job_description}
           </p>

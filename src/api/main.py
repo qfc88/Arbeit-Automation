@@ -9,6 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from .db import Pool
 from .routes import admin as admin_routes
 from .routes import public as public_routes
+from .routes import scrape as scrape_routes
+from .routes import stats as stats_routes
+from .routes import ml as ml_routes
+from .routes import skills as skills_routes
 
 logging.basicConfig(level=logging.INFO)
 
@@ -42,3 +46,7 @@ app.add_middleware(
 
 app.include_router(public_routes.router, prefix="/api")
 app.include_router(admin_routes.router, prefix="/api")
+app.include_router(stats_routes.router, prefix="/api")
+app.include_router(scrape_routes.router, prefix="/api")
+app.include_router(ml_routes.router, prefix="/api")
+app.include_router(skills_routes.router, prefix="/api")

@@ -1,0 +1,88 @@
+#
+# Local development overlay — run the full stack on localhost without VPS/nginx.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# Access:
+#   http://localhost:3000  — Job portal (Next.js frontend)
+#   http://localhost:8001  — API docs (FastAPI Swagger)
+#   http://localhost:8002  — ML service health
+#   http://localhost:8080  — Adminer (DB admin)
+#   http://localhost:9002  — Monitor dashboard
+#
+# No nginx needed. Frontend calls API directly via NEXT_PUBLIC_API_URL.
+# ML service starts in degraded mode if no model is trained yet.
+#
+
+services:
+  postgres:
+    restart: unless-stopped
+
+  job-scraper:
+    restart: unless-stopped
+    environment:
+      SCRAPER_USE_PARALLEL: "true"
+      SCRAPER_CONCURRENCY: "4"
+
+  adminer:
+    restart: unless-stopped
+
+  monitor:
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: src/api/Dockerfile
+    container_name: job-scraper-api
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: job_market_data
+      DB_USER: jobscraper
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      API_JWT_SECRET: ${API_JWT_SECRET:-devsecret_change_me}
+      API_CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - scraper-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: job-scraper-frontend
+    environment:
+      # SSR (inside Docker network) → service name
+      API_INTERNAL_URL: "http://api:8001/api"
+      # CSR (browser on host) → localhost
+      NEXT_PUBLIC_API_URL: "http://localhost:8001/api"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - api
+    networks:
+      - scraper-network
+    restart: unless-stopped
+
+  ml-inference:
+    build:
+      context: .
+      dockerfile: src/ml/Dockerfile
+    container_name: job-scraper-ml
+    environment:
+      ML_MODEL_PATH: /app/data/ml/baseline.joblib
+      ML_RELOAD_TOKEN: ${ML_RELOAD_TOKEN:-localdev}
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - ./data/ml:/app/data/ml:ro
+    networks:
+      - scraper-network
+    restart: unless-stopped

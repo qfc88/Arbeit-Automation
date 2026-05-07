@@ -1,7 +1,10 @@
 """
-Job scraper module for extracting job details from individual job pages
+Core job scraper engine — Playwright-based async scraper for arbeitsagentur.de.
+
+This is the BASE class.  The enhanced wrapper (job_scraper.py) inherits from
+this and adds validation, data cleaning, and realtime contact enhancement.
+All entry-point scripts import the wrapper, not this file directly.
 """
-# Add to existing imports
 from .external_link_handler import ExternalLinkHandler
 import asyncio
 import pandas as pd
@@ -14,26 +17,12 @@ import re
 from datetime import datetime
 import time
 import sys
-import importlib.util
 
-# Add config and utils to path
-sys.path.append(str(Path(__file__).parent.parent / "config"))
-sys.path.append(str(Path(__file__).parent.parent / "utils"))
-sys.path.append(str(Path(__file__).parent.parent / "database"))
-
-# Import settings - no fallback, fail fast if not configured
-try:
-    from settings import (SCRAPER_SETTINGS, BROWSER_SETTINGS, CAPTCHA_SETTINGS, 
-                         VALIDATION_SETTINGS, FILE_MANAGEMENT_SETTINGS, PATHS)
-except ImportError:
-    try:
-        from config.settings import (SCRAPER_SETTINGS, BROWSER_SETTINGS, CAPTCHA_SETTINGS,
-                                   VALIDATION_SETTINGS, FILE_MANAGEMENT_SETTINGS, PATHS)
-    except ImportError as e:
-        raise ImportError(
-            f"[ERROR] Settings import failed: {e}\n"
-            "Please ensure src/config/settings.py exists and contains required settings."
-        )
+# ── Package imports (require PYTHONPATH=src) ─────────────────
+from config.settings import (
+    SCRAPER_SETTINGS, BROWSER_SETTINGS, CAPTCHA_SETTINGS,
+    VALIDATION_SETTINGS, FILE_MANAGEMENT_SETTINGS, PATHS,
+)
 
 # Import CAPTCHA solver
 try:
@@ -45,44 +34,19 @@ except ImportError:
 
 # Import FileManager
 try:
-    # Try absolute import first
-    sys.path.append(str(Path(__file__).parent.parent / "utils"))
-    from file_manager import FileManager
+    from utils.file_manager import FileManager
     FILE_MANAGER_AVAILABLE = True
 except ImportError:
-    try:
-        # Try relative import
-        from utils.file_manager import FileManager
-        FILE_MANAGER_AVAILABLE = True
-    except ImportError:
-        try:
-            # Try direct path import
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("file_manager", 
-                  str(Path(__file__).parent.parent / "utils" / "file_manager.py"))
-            file_manager_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(file_manager_module)
-            FileManager = file_manager_module.FileManager
-            FILE_MANAGER_AVAILABLE = True
-        except ImportError:
-            FILE_MANAGER_AVAILABLE = False
-            logging.warning("FileManager not available, using legacy file handling")
+    FILE_MANAGER_AVAILABLE = False
+    logging.warning("FileManager not available, using legacy file handling")
 
 # Import JobModel for validation
 try:
     from models.job_model import JobModel
     JOB_MODEL_AVAILABLE = True
 except ImportError:
-    try:
-        from job_model import JobModel
-        JOB_MODEL_AVAILABLE = True
-    except ImportError:
-        try:
-            from database.job_model import JobModel
-            JOB_MODEL_AVAILABLE = True
-        except ImportError:
-            JOB_MODEL_AVAILABLE = False
-            logging.warning("JobModel not available, skipping data validation")
+    JOB_MODEL_AVAILABLE = False
+    logging.warning("JobModel not available, skipping data validation")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -101,6 +65,7 @@ class JobScraper:
         self.scraped_count = 0
         self.failed_count = 0
         self.auto_solve_captcha = auto_solve_captcha
+        self._parallel_mode = False  # set True during parallel runs to prevent browser restart
         
         # Enhanced settings from config
         self.batch_size = SCRAPER_SETTINGS.get('batch_size', 10)
@@ -185,7 +150,7 @@ class JobScraper:
             'company': '#detail-kopfbereich-firma',
             'location': '#detail-kopfbereich-arbeitsort',
             'start_date': '.eintrittsdatum-tag',
-            'job_description': '#detail-beschreibung-beschreibung',
+            'job_description': '#detail-beschreibung-text-container',
             'job_type': '#detail-kopfbereich-anstellungsart',
             'ausbildungsberuf': '#detail-kopfbereich-ausbildungsberuf',
             
@@ -374,7 +339,7 @@ class JobScraper:
             logger.info("  - CAPTCHA image disappears")
             
             # Multiple ways to detect CAPTCHA solved
-            max_wait_time = 300  # 5 minutes max
+            max_wait_time = 30   # 30 seconds max
             check_interval = 2   # Check every 2 seconds
             elapsed_time = 0
             
@@ -706,6 +671,10 @@ class JobScraper:
                 if "Page crashed" in str(nav_error) or "Target page, context or browser has been closed" in str(nav_error):
                     logger.warning(f"[CRASH] Page crash detected for {job_url}")
                     
+                    # In parallel mode, do NOT restart the shared browser — let the worker handle it
+                    if self._parallel_mode:
+                        raise nav_error
+                    
                     if retry_count < max_retries:
                         logger.info(f"[RETRY] Restarting browser and retrying job (attempt {retry_count + 2}/{max_retries + 1})")
                         
@@ -983,9 +952,15 @@ class JobScraper:
             }
     
     async def save_progress(self, scraped_jobs: List[Dict], batch_number: int = None):
-        """Save current progress using FileManager or legacy method + Database"""
+        """Save scraped jobs: DB first (primary), then files (backup).
+
+        Architecture:
+            1. Validate via JobModel (if available)
+            2. INSERT into PostgreSQL via JobDataLoader — this is the source of truth
+            3. Write JSON/CSV files as backup/audit trail (failures here don't block)
+        """
         try:
-            # Validate data if JobModel is available
+            # ── Step 1: Validate ──────────────────────────────────
             validated_jobs = scraped_jobs
             if JOB_MODEL_AVAILABLE and self.validate_data:
                 validated_jobs = []
@@ -999,92 +974,125 @@ class JobScraper:
                         else:
                             self.stats['validation_failures'] += 1
                             logger.warning(f"Job validation failed: {job_data.get('ref_nr', 'no-ref')} - {validation_result.errors}")
-                            # Still save but mark as invalid
                             job_dict = job_model.to_dict()
                             job_dict['validation_errors'] = validation_result.errors
                             validated_jobs.append(job_dict)
                     except Exception as e:
                         logger.error(f"Validation error for job: {e}")
-                        validated_jobs.append(job_data)  # Keep original if validation fails
+                        validated_jobs.append(job_data)
             
-            # REALTIME DATABASE LOADING
+            # ── Step 2: Database (primary) ────────────────────────
+            db_loaded = 0
+            db_failed = 0
             try:
                 from database.data_loader import JobDataLoader
                 loader = JobDataLoader()
                 
-                # Load each job immediately into database
                 for job_data in validated_jobs:
                     try:
                         result = await loader.load_single_job(job_data)
                         if result and result.get('loaded', 0) > 0:
-                            logger.info(f"[DATABASE] Job {job_data.get('ref_nr', 'no-ref')} loaded to database")
+                            db_loaded += 1
                         else:
-                            logger.warning(f"[WARNING] Job {job_data.get('ref_nr', 'no-ref')} failed to load to database")
+                            db_failed += 1
+                            logger.warning(f"[DB] Failed to load: {job_data.get('ref_nr', 'no-ref')}")
                     except Exception as e:
-                        logger.error(f"Database load error for job {job_data.get('ref_nr', 'no-ref')}: {e}")
-                        
-                logger.info(f"[REALTIME] DB: Attempted to load {len(validated_jobs)} jobs to database")
+                        db_failed += 1
+                        logger.error(f"[DB] Error loading {job_data.get('ref_nr', 'no-ref')}: {e}")
+
+                logger.info(f"[DB] {db_loaded}/{len(validated_jobs)} jobs loaded, {db_failed} failed")
             except Exception as e:
-                logger.error(f"Database loading module error: {e}")
-                logger.info("Continuing with file-only saving...")
+                logger.error(f"[DB] Module import error: {e}")
+                logger.warning("[DB] Database unavailable — falling back to file-only mode")
             
-            # Use FileManager if available
-            if FILE_MANAGER_AVAILABLE and self.file_manager:
-                json_path, csv_path = self.file_manager.save_jobs_batch(
-                    validated_jobs, 
-                    batch_number=batch_number,
-                    session_id=self.session_id,
-                    use_session_dir=self.use_sessions
-                )
-                
-                logger.info(f"[SUCCESS] Progress saved using FileManager: {len(validated_jobs)} jobs")
-                logger.info(f"Files: {json_path.name}, {csv_path.name}")
-                
-            else:
-                # Legacy file saving method
-                output_dir = Path("data/output")
-                output_dir.mkdir(parents=True, exist_ok=True)
-                
-                if batch_number is None:
-                    # Find next batch number
-                    existing_batches = list(output_dir.glob("scraped_jobs_batch_*.json"))
-                    batch_numbers = []
-                    for batch_file in existing_batches:
-                        try:
-                            num = int(batch_file.stem.split('_')[-1])
-                            batch_numbers.append(num)
-                        except (ValueError, IndexError):
-                            continue
-                    batch_number = max(batch_numbers) + 1 if batch_numbers else 1
-                
-                # Save as JSON (incremental)
-                json_path = output_dir / f"scraped_jobs_batch_{batch_number}.json"
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(validated_jobs, f, ensure_ascii=False, indent=2)
-                
-                # Save as CSV (consolidated)
-                csv_path = output_dir / "scraped_jobs_progress.csv"
-                df = pd.DataFrame(validated_jobs)
-                df.to_csv(csv_path, index=False, encoding='utf-8')
-                
-                logger.info(f"[FILES] Progress saved (legacy): {len(validated_jobs)} jobs in batch {batch_number}")
+            # ── Step 3: File backup (secondary) ───────────────────
+            try:
+                if FILE_MANAGER_AVAILABLE and self.file_manager:
+                    json_path, csv_path = self.file_manager.save_jobs_batch(
+                        validated_jobs, 
+                        batch_number=batch_number,
+                        session_id=self.session_id,
+                        use_session_dir=self.use_sessions
+                    )
+                    logger.info(f"[BACKUP] FileManager: {json_path.name}, {csv_path.name}")
+                else:
+                    output_dir = Path("data/output")
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    if batch_number is None:
+                        existing_batches = list(output_dir.glob("scraped_jobs_batch_*.json"))
+                        batch_numbers = []
+                        for batch_file in existing_batches:
+                            try:
+                                num = int(batch_file.stem.split('_')[-1])
+                                batch_numbers.append(num)
+                            except (ValueError, IndexError):
+                                continue
+                        batch_number = max(batch_numbers) + 1 if batch_numbers else 1
+                    
+                    json_path = output_dir / f"scraped_jobs_batch_{batch_number}.json"
+                    with open(json_path, 'w', encoding='utf-8') as f:
+                        json.dump(validated_jobs, f, ensure_ascii=False, indent=2)
+                    
+                    csv_path = output_dir / "scraped_jobs_progress.csv"
+                    df = pd.DataFrame(validated_jobs)
+                    df.to_csv(csv_path, index=False, encoding='utf-8')
+                    
+                    logger.info(f"[BACKUP] Files: batch {batch_number}, {len(validated_jobs)} jobs")
+            except Exception as e:
+                logger.error(f"[BACKUP] File save error: {e}")
+                # File failure is non-critical when DB succeeded
+                if db_loaded > 0:
+                    logger.info("[BACKUP] DB save succeeded — file backup failure is non-critical")
             
         except Exception as e:
             logger.error(f"[ERROR] Error saving progress: {e}")
             self.stats['errors'] += 1
     
     async def load_existing_progress(self) -> List[Dict]:
-        """Load previously scraped job data"""
+        """Load previously scraped job data from all known locations"""
+        all_jobs = []
+        seen_refs = set()
+
+        def _add_jobs(jobs):
+            for job in jobs:
+                ref = job.get('ref_nr') or job.get('source_url')
+                if ref and ref not in seen_refs:
+                    seen_refs.add(ref)
+                    all_jobs.append(job)
+
+        # 1. FileManager session path (if available)
+        if FILE_MANAGER_AVAILABLE and self.file_manager:
+            try:
+                fm_jobs = self.file_manager.load_existing_progress(self.session_id)
+                _add_jobs(fm_jobs)
+            except Exception as e:
+                logger.debug(f"FileManager progress load failed: {e}")
+
+        # 2. Legacy path (always check as fallback)
         try:
             progress_file = Path("data/output/scraped_jobs_progress.csv")
             if progress_file.exists():
                 df = pd.read_csv(progress_file)
-                logger.info(f"Loaded {len(df)} previously scraped jobs")
-                return df.to_dict('records')
-            return []
+                _add_jobs(df.to_dict('records'))
         except Exception as e:
-            logger.error(f"Error loading existing progress: {e}")
-            return []
+            logger.debug(f"Legacy progress load failed: {e}")
+
+        # 3. Scan all session directories for progress files
+        try:
+            output_dir = Path("data/output")
+            for session_dir in output_dir.iterdir():
+                if session_dir.is_dir() and session_dir.name.startswith("scrape_session_"):
+                    csv_path = session_dir / "scraped_jobs_progress.csv"
+                    if csv_path.exists():
+                        df = pd.read_csv(csv_path)
+                        _add_jobs(df.to_dict('records'))
+        except Exception as e:
+            logger.debug(f"Session scan failed: {e}")
+
+        if all_jobs:
+            logger.info(f"Loaded {len(all_jobs)} previously scraped jobs (deduplicated)")
+        return all_jobs
     
     async def process_jobs_batch(self, job_urls: List[Dict], batch_size: int = 10) -> List[Dict]:
         """Process jobs; route to parallel runner when SCRAPER_SETTINGS['use_parallel'] is on."""
@@ -1093,6 +1101,7 @@ class JobScraper:
 
         all_scraped_jobs = []
         total_jobs = len(job_urls)
+        last_saved_idx = 0  # track where we last saved to avoid cumulative batches
 
         # Use single page for all jobs to maintain session
         page = await self.context.new_page()
@@ -1153,7 +1162,9 @@ class JobScraper:
             # Save progress every N jobs (from settings)
             if job_number % self.batch_size == 0:
                 batch_number = job_number // self.batch_size
-                await self.save_progress(all_scraped_jobs, batch_number)
+                batch_slice = all_scraped_jobs[last_saved_idx:]
+                last_saved_idx = len(all_scraped_jobs)
+                await self.save_progress(batch_slice, batch_number)
                 
                 # Log enhanced progress with statistics
                 success_rate = (self.stats['successful_scrapes'] / max(self.stats['total_processed'], 1)) * 100
@@ -1182,6 +1193,9 @@ class JobScraper:
         if total == 0:
             return []
 
+        # Prevent scrape_single_job from restarting the shared browser on crash
+        self._parallel_mode = True
+
         concurrency = SCRAPER_SETTINGS.get('concurrency', 6)
         delay = SCRAPER_SETTINGS.get('delay_between_jobs', self.delay_between_jobs)
         batch_save_size = SCRAPER_SETTINGS.get('save_every_n_jobs', self.batch_size)
@@ -1192,7 +1206,17 @@ class JobScraper:
         )
 
         async def _scrape_fn(page, job_data):
-            result = await self.scrape_single_job(page, job_data)
+            # In parallel mode, we must NOT let scrape_single_job restart the
+            # shared browser (its crash-recovery path calls self.browser.close()).
+            # Instead, catch crashes and let the parallel_runner recreate the page.
+            try:
+                result = await self.scrape_single_job(page, job_data)
+            except Exception as e:
+                err_str = str(e).lower()
+                if "page crashed" in err_str or "browser has been closed" in err_str or "target closed" in err_str:
+                    # Re-raise so the worker can recreate the page — do NOT restart browser
+                    raise
+                raise
             self.stats['total_processed'] += 1
             if result.get('captcha_solved'):
                 self.stats['captcha_encounters'] += 1
@@ -1464,8 +1488,13 @@ class JobScraper:
             existing_jobs = []
             if resume:
                 existing_jobs = await self.load_existing_progress()
-                processed_urls = {job.get('source_url') for job in existing_jobs}
-                job_urls = [job for job in job_urls if job['job_url'] not in processed_urls]
+                processed_urls = {job.get('source_url') for job in existing_jobs if job.get('source_url')}
+                processed_refs = {job.get('ref_nr') for job in existing_jobs if job.get('ref_nr')}
+                job_urls = [
+                    job for job in job_urls
+                    if job['job_url'] not in processed_urls
+                    and job.get('ref_nr') not in processed_refs
+                ]
                 logger.info(f"Resuming: {len(job_urls)} jobs remaining to scrape")
             
             if not job_urls:

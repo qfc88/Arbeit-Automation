@@ -2,20 +2,10 @@ import os
 import pandas as pd
 import time
 import json
-import sys
 from pathlib import Path
 from playwright.async_api import async_playwright
 
-# Add config path and import centralized settings
-sys.path.append(str(Path(__file__).parent.parent / "config"))
-
-try:
-    from settings import PATHS, SCRAPER_SETTINGS
-except ImportError as e:
-    raise ImportError(
-        f"[ERROR] Settings import failed: {e}\n"
-        "Please ensure src/config/settings.py exists and contains required settings."
-    )
+from config.settings import PATHS, SCRAPER_SETTINGS
 
 
 class JobURLScraper:
@@ -33,7 +23,54 @@ class JobURLScraper:
         self.base_dir = self.input_dir  # For compatibility with existing code
         self.progress_file = os.path.join(self.temp_dir, 'scraping_progress.json')
         self.temp_urls_file = os.path.join(self.temp_dir, 'temp_job_urls.csv')
-        
+
+    async def get_total_job_count(self) -> int:
+        """Open the search page and extract the total job count (e.g. '30.238 Jobs' → 30238).
+        Returns 0 if the count cannot be determined."""
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=SCRAPER_SETTINGS.get('headless', True))
+                page = await browser.new_page()
+                await page.goto(self.url)
+                await page.wait_for_load_state("networkidle")
+
+                # Dismiss cookie modal if present
+                try:
+                    cookie_btn = page.locator('button:has-text("Alle Cookies ablehnen")')
+                    if await cookie_btn.is_visible(timeout=3000):
+                        await cookie_btn.click()
+                        await page.wait_for_load_state("networkidle")
+                except Exception:
+                    pass
+
+                # Extract count from '#suchergebnis-h1-anzeige' (e.g. "30.238 Jobs")
+                count_el = page.locator("#suchergebnis-h1-anzeige")
+                if await count_el.is_visible(timeout=5000):
+                    text = await count_el.text_content()
+                    # "30.238 Jobs" → "30238"
+                    import re
+                    m = re.search(r'([\d.]+)', text or "")
+                    if m:
+                        count = int(m.group(1).replace('.', ''))
+                        await browser.close()
+                        return count
+
+                await browser.close()
+        except Exception as e:
+            print(f"Error getting total job count: {e}")
+        return 0
+
+    def get_existing_urls(self) -> set:
+        """Load existing URLs from the master CSV for dedup."""
+        csv_path = PATHS['input_csv']
+        if os.path.exists(csv_path):
+            try:
+                df = pd.read_csv(csv_path, encoding='utf-8-sig')
+                return set(df['job_url'].tolist())
+            except Exception:
+                pass
+        return set()
+    
     def save_progress(self, page_count, total_urls):
         """Save current scraping progress to file"""
         progress_data = {
@@ -219,151 +256,129 @@ class JobURLScraper:
                 return True
         return False
 
-    async def scrape_all_job_urls(self):
-        """Scrape all job URLs from arbeitsagentur.de using pagination with recovery"""
+    async def scrape_all_job_urls(self, auto_resume: bool = False):
+        """Scrape all job URLs from arbeitsagentur.de using pagination.
+
+        Always starts from page 1 (no resume-by-replay — the site uses
+        "Load More" which requires re-clicking from the beginning).
+        Deduplicates against the existing master CSV so that multiple
+        filter runs accumulate unique URLs.
+
+        Args:
+            auto_resume: If True, automatically skip interactive prompts.
+        """
         start_time = time.time()
-        
-        # Check for previous progress
-        progress = self.load_progress()
-        existing_urls = self.load_temp_urls()
-        
-        if progress and existing_urls:
-            response = input(f"Found previous session: Page {progress['last_page']}, {len(existing_urls)} URLs. Continue? (y/n): ")
-            if response.lower() != 'y':
-                existing_urls = set()
-                progress = None
-        
-        start_page = progress['last_page'] if progress else 1
-        all_job_urls = existing_urls if existing_urls else set()
-        
+
+        # Load existing URLs from master CSV for cross-filter dedup
+        existing_urls = self.get_existing_urls()
+        print(f"Existing URLs in master CSV: {len(existing_urls)}")
+
+        # Collect new URLs in this run (set for dedup within run)
+        new_urls_this_run: set = set()
+        page_count = 0
+
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=SCRAPER_SETTINGS.get('headless', True))
                 page = await browser.new_page()
-                
+
                 print(f"Navigating to: {self.url}")
                 await page.goto(self.url)
-                
-                # Wait for initial page load
                 await page.wait_for_load_state("networkidle")
-                
-                # Handle modals if they appear (including infinite retry for connection errors)
+
+                # Handle modals (cookie consent, connection errors)
                 await self.handle_modals(page)
-                
-                page_count = start_page
-                
-                # If resuming, navigate to the correct page
-                if start_page > 1:
-                    print(f"Resuming from page {start_page}...")
-                    for _ in range(start_page - 1):
-                        load_more_btn = page.locator("#ergebnisliste-ladeweitere-button")
-                        if await load_more_btn.is_visible():
-                            await load_more_btn.click()
-                            await page.wait_for_load_state("networkidle")
-                            time.sleep(0.5)
-                        else:
-                            print("Could not resume to previous page, starting fresh")
-                            page_count = 1
-                            break
-                
+
                 while True:
+                    page_count += 1
                     print(f"Scraping page {page_count}...")
-                    
-                    # Check for connection error before processing each page
+
+                    # Check for connection error before processing
                     await self.check_and_handle_connection_during_scraping(page)
-                    
-                    # Get current job count before processing
-                    current_job_count = len(all_job_urls)
-                    
+
                     try:
-                        # Extract URLs using JavaScript for better performance
-                        new_urls = await page.evaluate("""
+                        # Extract URLs from all currently loaded items
+                        page_urls = await page.evaluate("""
                             () => {
-                                const links = Array.from(document.querySelectorAll('a.ergebnisliste-item'));
+                                const links = Array.from(document.querySelectorAll('div.ergebnisliste-item a[href*="jobdetail"]'));
                                 return links.map(link => link.href);
                             }
                         """)
-                        
                     except Exception as eval_error:
                         print(f"Error extracting URLs: {eval_error}")
-                        # Check if it's a connection issue and handle it
-                        if self.check_and_handle_connection_during_scraping(page):
-                            print("Connection issue resolved, retrying URL extraction...")
+                        if await self.check_and_handle_connection_during_scraping(page):
+                            print("Connection issue resolved, retrying...")
+                            page_count -= 1
                             continue
                         else:
-                            print("Non-connection error, skipping this page...")
+                            print("Non-connection error, skipping...")
                             time.sleep(5)
+                            page_count -= 1
                             continue
-                    
-                    # Add new URLs to set
-                    for url in new_urls:
-                        all_job_urls.add(url)
-                    
-                    new_jobs_found = len(all_job_urls) - current_job_count
-                    print(f"Page {page_count}: Found {len(new_urls)} jobs on page, {new_jobs_found} new unique jobs")
-                    print(f"Total unique jobs: {len(all_job_urls)}")
-                    
+
+                    # Collect only genuinely new URLs (not in master CSV)
+                    before = len(new_urls_this_run)
+                    for url in page_urls:
+                        if url not in existing_urls:
+                            new_urls_this_run.add(url)
+
+                    new_on_page = len(new_urls_this_run) - before
+                    total_unique = len(existing_urls) + len(new_urls_this_run)
+                    print(f"Page {page_count}: {new_on_page} new URLs "
+                          f"(run: {len(new_urls_this_run)}, total: {total_unique})")
+
                     # Save progress every page
-                    self.save_progress(page_count, len(all_job_urls))
-                    self.save_temp_urls(all_job_urls)
-                    
-                    # Check for "Weitere Ergebnisse" button
+                    self.save_progress(page_count, total_unique)
+                    self.save_temp_urls(existing_urls | new_urls_this_run)
+
+                    # Click "Weitere Ergebnisse" if available
                     load_more_btn = page.locator("#ergebnisliste-ladeweitere-button")
-                    
+
                     if await load_more_btn.is_visible():
-                        print("Clicking 'Weitere Ergebnisse'...")
-                        
                         try:
                             await load_more_btn.click()
-                            
-                            # Wait for network idle
                             await page.wait_for_load_state("networkidle", timeout=30000)
-                            
-                            # Check for connection issues after clicking
                             await self.check_and_handle_connection_during_scraping(page)
-                            
-                            # Small buffer for rendering
                             time.sleep(1)
-                            page_count += 1
-                            
                         except Exception as click_error:
-                            print(f"Error clicking load more button: {click_error}")
-                            # Check if it's a connection issue
+                            print(f"Error clicking load more: {click_error}")
                             if await self.check_and_handle_connection_during_scraping(page):
-                                print("Connection issue resolved, retrying click...")
+                                print("Connection resolved, retrying click...")
                                 continue
                             else:
                                 print("Non-connection error, stopping scrape")
                                 break
-                            
                     else:
-                        print("No more 'Weitere Ergebnisse' button - scraping complete!")
+                        print("No more 'Weitere Ergebnisse' — scraping complete!")
                         break
-                
+
                 await browser.close()
-                
+
                 processing_time = time.time() - start_time
                 print(f"\n=== SCRAPING COMPLETE ===")
-                print(f"Total pages scraped: {page_count}")
-                print(f"Total unique job URLs: {len(all_job_urls)}")
-                print(f"Processing time: {processing_time:.2f} seconds")
-                
+                print(f"Pages scraped: {page_count}")
+                print(f"New URLs this run: {len(new_urls_this_run)}")
+                print(f"Total unique URLs: {len(existing_urls) + len(new_urls_this_run)}")
+                print(f"Time: {processing_time:.2f}s")
+
                 # Clean up temp files on successful completion
                 self.cleanup_temp_files()
-                
-                return list(all_job_urls)
+
+                # Return ALL unique URLs (existing + new)
+                all_urls = list(existing_urls | new_urls_this_run)
+                return all_urls
                 
         except Exception as e:
             print(f"\n=== SCRAPING INTERRUPTED ===")
             print(f"Error: {e}")
-            print(f"Progress saved: Page {page_count}, {len(all_job_urls)} URLs")
-            print("You can resume later by running the script again")
-            
+            all_collected = existing_urls | new_urls_this_run
+            print(f"Progress saved: Page {page_count}, {len(new_urls_this_run)} new, {len(all_collected)} total")
+
             # Save final state before exit
-            self.save_progress(page_count, len(all_job_urls))
-            self.save_temp_urls(all_job_urls)
-            
-            return list(all_job_urls)
+            self.save_progress(page_count, len(all_collected))
+            self.save_temp_urls(all_collected)
+
+            return list(all_collected)
     
     def save_job_urls_to_csv(self, job_urls):
         """Save job URLs to CSV for later processing"""
@@ -485,30 +500,37 @@ class JobURLScraper:
         except Exception as e:
             print(f"Failed to save update report: {e}")
     
-    async def run_scraping(self):
-        """Main method to run the scraping process"""
+    async def run_scraping(self, auto_mode: bool = False):
+        """Main method to run the scraping process
+        
+        Args:
+            auto_mode: If True, skip interactive prompts (for API/automation use).
+        """
         print("Starting job URL scraping...")
         
         # Check if we already have scraped URLs
         existing_df = self.load_job_urls_from_csv()
         
         if existing_df is not None:
-            print(f"Found existing {len(existing_df)} job URLs.")
-            print("Options:")
-            print("1. Skip scraping (use existing data)")
-            print("2. Full re-scrape (replace all data)")
-            print("3. Incremental scrape (add new jobs only)")
-            
-            choice = input("Choose option (1/2/3): ").strip()
-            
-            if choice == '1':
-                return existing_df
-            elif choice == '3':
-                return await self.incremental_scrape()
-            # choice == '2' or any other input will continue to full scrape
+            if auto_mode:
+                print(f"Auto-mode: Found existing {len(existing_df)} job URLs. Doing full re-scrape.")
+            else:
+                print(f"Found existing {len(existing_df)} job URLs.")
+                print("Options:")
+                print("1. Skip scraping (use existing data)")
+                print("2. Full re-scrape (replace all data)")
+                print("3. Incremental scrape (add new jobs only)")
+                
+                choice = input("Choose option (1/2/3): ").strip()
+                
+                if choice == '1':
+                    return existing_df
+                elif choice == '3':
+                    return await self.incremental_scrape()
+                # choice == '2' or any other input will continue to full scrape
         
         # Full scrape all job URLs
-        job_urls = await self.scrape_all_job_urls()
+        job_urls = await self.scrape_all_job_urls(auto_resume=auto_mode)
         
         # Save to CSV
         df = self.save_job_urls_to_csv(job_urls)
